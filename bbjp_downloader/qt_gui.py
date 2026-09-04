@@ -31,54 +31,68 @@ from .scraper import Scraper, person_label
 THUMB_W, THUMB_H = 122, 152
 
 _QSS = """
-QWidget#root { background: #eef1f6; }
-QLabel#header { background: #4f46e5; color: white; padding: 16px 20px; }
-QLabel#headerSub { background: #4f46e5; color: #c7d2fe; padding: 16px 16px; }
-QLineEdit {
-    border: 1px solid #e2e6ee; border-radius: 9px; padding: 9px 11px;
-    background: white; selection-background-color: #c7d2fe;
+QWidget { font-family: "Segoe UI"; font-size: 13px; color: #203b36; }
+QWidget#root { background: #f5f4ef; }
+QWidget#masthead { background: #203b36; }
+QLabel#header { background: transparent; color: #faf9f3; padding: 0; }
+QLabel#headerSub { background: transparent; color: #b9cdc2; padding: 0; font-size: 11px; }
+QLineEdit, QSpinBox, QDoubleSpinBox {
+    border: 1px solid #dedfd6; border-radius: 9px; padding: 9px 11px;
+    background: white; selection-background-color: #d5e9e1;
 }
-QLineEdit:focus { border: 1px solid #4f46e5; }
+QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus { border: 1px solid #176b60; }
 QPushButton#accent {
-    background: #4f46e5; color: white; border: none; border-radius: 9px;
+    background: #176b60; color: white; border: none; border-radius: 9px;
     padding: 9px 18px; font-weight: 600;
 }
-QPushButton#accent:hover { background: #4338ca; }
-QPushButton#accent:disabled { background: #c3c6e8; }
+QPushButton#accent:hover { background: #105348; }
+QPushButton#accent:disabled { background: #dce5df; color: #65766d; }
 QPushButton#danger {
-    background: #e11d48; color: white; border: none; border-radius: 9px;
+    background: #ad4c45; color: white; border: none; border-radius: 9px;
     padding: 9px 18px; font-weight: 600;
 }
-QPushButton#danger:hover { background: #be123c; }
-QPushButton#danger:disabled { background: #eeb8c4; }
+QPushButton#danger:hover { background: #903e38; }
+QPushButton#danger:disabled { background: #eaded9; color: #7e6c66; }
 QPushButton#ghost {
-    background: white; color: #0f172a; border: 1px solid #e2e6ee;
+    background: white; color: #203b36; border: 1px solid #dedfd6;
     border-radius: 9px; padding: 8px 13px;
 }
-QPushButton#ghost:hover { background: #f1f5f9; }
+QPushButton#ghost:hover { background: #eeeee7; }
 QPushButton#card {
-    background: #4f46e5; color: white; border: none; border-radius: 8px;
+    background: #176b60; color: white; border: none; border-radius: 8px;
     padding: 7px 14px; font-weight: 600;
 }
-QPushButton#card:hover { background: #4338ca; }
-QPushButton#card:disabled { background: #c3c6e8; }
-QFrame#card { background: white; border: 1px solid #e2e6ee; border-radius: 13px; }
-QLabel#title { color: #0f172a; font-size: 13px; font-weight: 600; }
-QLabel#count { color: #4f46e5; font-size: 11px; }
-QLabel#url { color: #94a3b8; font-size: 10px; }
-QLabel#cardStatus { color: #64748b; font-size: 11px; }
-QLabel#thumb { background: #eef1f6; border-radius: 9px; color: #94a3b8; }
-QLabel#toolCount { color: #0f172a; font-size: 13px; font-weight: 600; }
-QLabel#hint { color: #64748b; font-size: 11px; }
-QLabel#status { color: #64748b; font-size: 11px; }
+QPushButton#card:hover { background: #105348; }
+QPushButton#card:disabled { background: #dce5df; color: #65766d; }
+QFrame#card { background: white; border: 1px solid #dedfd6; border-radius: 13px; }
+QLabel#title { color: #203b36; font-size: 15px; font-weight: 600; }
+QLabel#count { color: #176b60; font-size: 11px; }
+QLabel#url { color: #73817a; font-size: 11px; }
+QLabel#cardStatus { color: #5e7169; font-size: 11px; }
+QLabel#thumb { background: #f5f4ef; border-radius: 9px; color: #73817a; }
+QLabel#toolCount { color: #203b36; font-size: 15px; font-weight: 600; }
+QLabel#hint { color: #5e7169; font-size: 11px; }
+QLabel#status { color: #5e7169; font-size: 11px; }
 QPlainTextEdit#log {
-    background: #0f172a; color: #cbd5e1; border: none; border-radius: 9px;
+    background: #203b36; color: #d4e2da; border: none; border-radius: 9px;
     padding: 8px;
 }
-QScrollArea { border: none; background: #eef1f6; }
-QScrollBar:vertical { background: #eef1f6; width: 12px; margin: 0; }
-QScrollBar::handle:vertical { background: #cbd2df; border-radius: 6px; min-height: 30px; }
+QScrollArea { border: none; background: #f5f4ef; }
+QScrollBar:vertical { background: #f5f4ef; width: 12px; margin: 0; }
+QScrollBar::handle:vertical { background: #c4cec5; border-radius: 6px; min-height: 30px; }
 QScrollBar::add-line, QScrollBar::sub-line { height: 0; }
+QScrollBar::add-page, QScrollBar::sub-page { background: transparent; }
+QFrame#searchPanel { background: white; border: 1px solid #dedfd6; border-radius: 14px; }
+QLabel#eyebrow { color: #176b60; font-size: 10px; font-weight: 700; letter-spacing: 2px; }
+QLabel#intro { font-size: 24px; font-weight: 600; color: #203b36; }
+QLabel#empty { background: #eeeee7; color: #5e7169; border: 1px dashed #c4cec5; border-radius: 14px; font-size: 14px; padding: 28px; }
+QPushButton:focus { border: 2px solid #9fbcaa; }
+QPushButton:pressed { padding-top: 11px; }
+QDialog { background: #f5f4ef; }
+QCheckBox { spacing: 8px; }
+QCheckBox::indicator { width: 16px; height: 16px; border: 1px solid #73817a; border-radius: 4px; background: white; }
+QCheckBox::indicator:checked { background: #176b60; border: 3px solid #a9c9b6; }
+
 """
 
 
@@ -144,7 +158,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _build(self) -> None:
         self.setWindowTitle("BBJP Gallery Downloader")
-        self.resize(860, 720)
+        self.resize(980, 820)
+        self.setMinimumSize(760, 680)
         self.setStyleSheet(_QSS)
 
         root = QtWidgets.QWidget(objectName="root")
@@ -154,12 +169,12 @@ class MainWindow(QtWidgets.QMainWindow):
         outer.setSpacing(0)
 
         # Header
-        header = QtWidgets.QWidget()
+        header = QtWidgets.QWidget(objectName="masthead")
         hb = QtWidgets.QHBoxLayout(header)
-        hb.setContentsMargins(0, 0, 0, 0)
+        hb.setContentsMargins(28, 22, 28, 22)
         hb.setSpacing(0)
-        h1 = QtWidgets.QLabel("BBJP Gallery Downloader", objectName="header")
-        f = h1.font(); f.setPointSize(15); f.setBold(True); h1.setFont(f)
+        h1 = QtWidgets.QLabel("BBJP  /  Gallery Archive", objectName="header")
+        f = h1.font(); f.setPointSize(16); f.setBold(True); h1.setFont(f)
         sub = QtWidgets.QLabel("personal use · be gentle on the site",
                                objectName="headerSub")
         sub.setAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
@@ -167,11 +182,20 @@ class MainWindow(QtWidgets.QMainWindow):
         outer.addWidget(header)
 
         body = QtWidgets.QVBoxLayout()
-        body.setContentsMargins(20, 16, 20, 14)
-        body.setSpacing(10)
+        body.setContentsMargins(28, 24, 28, 18)
+        body.setSpacing(14)
         outer.addLayout(body)
 
-        # Search row
+        body.addWidget(QtWidgets.QLabel("YOUR PERSONAL COLLECTION", objectName="eyebrow"))
+        body.addWidget(QtWidgets.QLabel("Find a gallery. Keep it organized.", objectName="intro"))
+
+        # Search panel
+        search_panel = QtWidgets.QFrame(objectName="searchPanel")
+        search_layout = QtWidgets.QVBoxLayout(search_panel)
+        search_layout.setContentsMargins(18, 16, 18, 16)
+        search_layout.setSpacing(10)
+        search_label = QtWidgets.QLabel("Name or gallery URL", objectName="toolCount")
+        search_layout.addWidget(search_label)
         srow = QtWidgets.QHBoxLayout()
         self.name_edit = QtWidgets.QLineEdit()
         self.name_edit.setPlaceholderText(
@@ -185,21 +209,25 @@ class MainWindow(QtWidgets.QMainWindow):
         srow.addWidget(self.name_edit, 1)
         srow.addWidget(self.search_btn)
         srow.addWidget(self.stop_btn)
-        body.addLayout(srow)
+        search_label.setBuddy(self.name_edit)
+        self.name_edit.setAccessibleName("Name or gallery URL")
+        search_layout.addLayout(srow)
+        search_layout.addWidget(QtWidgets.QLabel("Search by name, or paste a category / tag URL to get started.", objectName="hint"))
+        body.addWidget(search_panel)
 
         # Toolbar row
         trow = QtWidgets.QHBoxLayout()
-        self.tool_count = QtWidgets.QLabel("", objectName="toolCount")
+        self.tool_count = QtWidgets.QLabel("Galleries", objectName="toolCount")
         trow.addWidget(self.tool_count)
         trow.addStretch(1)
         for text, obj, slot in (
-            ("📂  Open folder", "ghost", self.open_folder),
-            ("⚙  Settings", "ghost", self.open_settings),
+            ("Open folder", "ghost", self.open_folder),
+            ("Settings", "ghost", self.open_settings),
         ):
             b = QtWidgets.QPushButton(text, objectName=obj)
             b.clicked.connect(slot)
             trow.addWidget(b)
-        self.dl_all_btn = QtWidgets.QPushButton("⤓  Download all",
+        self.dl_all_btn = QtWidgets.QPushButton("↓  Download all",
                                                 objectName="accent")
         self.dl_all_btn.setEnabled(False)
         self.dl_all_btn.clicked.connect(self.download_all)
@@ -209,14 +237,15 @@ class MainWindow(QtWidgets.QMainWindow):
         # Results scroll area
         self.scroll = QtWidgets.QScrollArea()
         self.scroll.setWidgetResizable(True)
-        self.list_host = QtWidgets.QWidget()
+        self.list_host = QtWidgets.QWidget(objectName="root")
         self.list_layout = QtWidgets.QVBoxLayout(self.list_host)
+        self.list_layout.setSizeConstraint(QtWidgets.QLayout.SetMinimumSize)
         self.list_layout.setContentsMargins(0, 0, 6, 0)
-        self.list_layout.setSpacing(8)
+        self.list_layout.setSpacing(12)
         self.empty = QtWidgets.QLabel(
-            "Nothing yet — search for a name to see galleries.")
+            "Your collection starts here\n\nSearch above to discover galleries.\nThumbnails and image counts will appear here.")
         self.empty.setAlignment(QtCore.Qt.AlignCenter)
-        self.empty.setObjectName("hint")
+        self.empty.setObjectName("empty")
         self.empty.setMinimumHeight(180)
         self.list_layout.addWidget(self.empty)
         self.list_layout.addStretch(1)
@@ -225,7 +254,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Log
         lrow = QtWidgets.QHBoxLayout()
-        lrow.addWidget(QtWidgets.QLabel("Log", objectName="hint"))
+        lrow.addWidget(QtWidgets.QLabel("ACTIVITY LOG", objectName="eyebrow"))
         lrow.addStretch(1)
         copy_b = QtWidgets.QPushButton("Copy", objectName="ghost")
         copy_b.clicked.connect(self.copy_log)
@@ -236,7 +265,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.log = QtWidgets.QPlainTextEdit(objectName="log")
         self.log.setReadOnly(True)
-        self.log.setFixedHeight(96)
+        self.log.setFixedHeight(90)
+        self.log.setFont(QtGui.QFont("Consolas", 10))
         body.addWidget(self.log)
 
         self.status = QtWidgets.QLabel("Ready.", objectName="status")
@@ -289,7 +319,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def open_settings(self) -> None:
         dlg = QtWidgets.QDialog(self)
         dlg.setWindowTitle("Settings")
-        dlg.setStyleSheet(_QSS + "QDialog { background: white; }")
+        dlg.setStyleSheet(_QSS)
         form = QtWidgets.QFormLayout(dlg)
         form.setContentsMargins(20, 18, 20, 18)
         form.setSpacing(10)
@@ -425,17 +455,18 @@ class MainWindow(QtWidgets.QMainWindow):
     def _add_card(self, stub) -> None:
         idx = len(self.cards)
         frame = QtWidgets.QFrame(objectName="card")
+        frame.setMinimumHeight(THUMB_H + 36)
         h = QtWidgets.QHBoxLayout(frame)
-        h.setContentsMargins(12, 12, 12, 12)
-        h.setSpacing(12)
+        h.setContentsMargins(18, 18, 18, 18)
+        h.setSpacing(18)
 
-        thumb = QtWidgets.QLabel("🖼", objectName="thumb")
+        thumb = QtWidgets.QLabel("PREVIEW", objectName="thumb")
         thumb.setFixedSize(THUMB_W, THUMB_H)
         thumb.setAlignment(QtCore.Qt.AlignCenter)
         h.addWidget(thumb)
 
         right = QtWidgets.QVBoxLayout()
-        right.setSpacing(3)
+        right.setSpacing(8)
         title = QtWidgets.QLabel(stub.title, objectName="title")
         title.setWordWrap(True)
         count = QtWidgets.QLabel("counting…", objectName="count")
@@ -446,7 +477,7 @@ class MainWindow(QtWidgets.QMainWindow):
         right.addWidget(url)
 
         ctl = QtWidgets.QHBoxLayout()
-        btn = QtWidgets.QPushButton("⤓  Download", objectName="card")
+        btn = QtWidgets.QPushButton("↓  Download", objectName="card")
         btn.clicked.connect(lambda _=False, i=idx: self.download_one(i))
         cstatus = QtWidgets.QLabel("", objectName="cardStatus")
         ctl.addWidget(btn)
@@ -493,12 +524,12 @@ class MainWindow(QtWidgets.QMainWindow):
         card = self.cards[idx]
         if gallery is None or not gallery.images:
             card["count"].setText("no images")
-            card["count"].setStyleSheet("color:#64748b;")
+            card["count"].setStyleSheet("color:#5e7169;")
             return
         card["gallery"] = gallery
         n = len(gallery.images)
         card["count"].setText(f"{n} image{'s' if n != 1 else ''}")
-        card["count"].setStyleSheet("color:#64748b;")
+        card["count"].setStyleSheet("color:#5e7169;")
         if not card["stub"].thumb:
             self._load_thumb(idx, gallery.images[0])
 
