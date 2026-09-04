@@ -1,3 +1,4 @@
 requests>=2.25
 beautifulsoup4>=4.9
-pillow>=9.0        # optional: gallery thumbnails in the GUI
+pillow>=9.0        # gallery thumbnails
+PySide6>=6.5       # modern Qt GUI (falls back to Tkinter if missing)

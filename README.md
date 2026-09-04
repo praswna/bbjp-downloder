@@ -15,8 +15,10 @@ interface** and a small **desktop GUI**.
 
 - **Name → galleries → images.** Give it a name; it finds every matching
   gallery and downloads all the images in each.
-- **Visual GUI.** Search shows each gallery as a card with a thumbnail, image
-  count, and its own Download button (plus Download-all and Stop).
+- **Modern Qt GUI.** A PySide6/Qt window shows each gallery as a card with a
+  thumbnail, image count, and its own Download button (plus Download-all, Stop,
+  Open-folder, Settings and log copy). Falls back to a Tkinter UI if PySide6
+  isn't installed.
 - **Smart discovery.** Finds the person's `category`/`tag` page automatically
   (even romaji+Japanese slugs), or scrape a pasted URL directly.
 - **Full-resolution images.** Automatically upgrades WordPress' resized
@@ -45,9 +47,11 @@ pip install -e .
 ```
 
 Dependencies: [`requests`](https://pypi.org/project/requests/),
-[`beautifulsoup4`](https://pypi.org/project/beautifulsoup4/) and
-[`pillow`](https://pypi.org/project/pillow/) (for GUI thumbnails; optional). The
-GUI uses Tkinter, which ships with most CPython installs.
+[`beautifulsoup4`](https://pypi.org/project/beautifulsoup4/),
+[`pillow`](https://pypi.org/project/pillow/) (thumbnails) and
+[`PySide6`](https://pypi.org/project/PySide6/) (the Qt GUI). If PySide6 isn't
+installed the app falls back to a built-in Tkinter GUI, so the CLI works with
+just `requests` + `beautifulsoup4`.
 
 ## Windows: just double-click
 
@@ -145,8 +149,9 @@ Toolbar & niceties:
 - **Stop** cancels the current operation; files already downloaded are kept,
   and running again resumes (existing files are skipped).
 
-Thumbnails use [Pillow](https://pypi.org/project/pillow/). If it isn't
-installed the cards simply show a placeholder and everything else still works.
+The GUI is built with **PySide6/Qt** for a modern look (rounded cards, hover
+states, a proper settings dialog). If PySide6 isn't installed it automatically
+falls back to a simpler Tkinter window with the same features.
 
 On the command line, press **Ctrl+C** for the same graceful stop (a second
 Ctrl+C forces an immediate quit).

@@ -32,7 +32,7 @@ if not exist ".venv\Scripts\python.exe" (
 set "VENV_PY=.venv\Scripts\python.exe"
 
 rem --- Install dependencies if they are missing ---------------------
-"%VENV_PY%" -c "import requests, bs4, PIL" >nul 2>nul
+"%VENV_PY%" -c "import requests, bs4, PIL, PySide6" >nul 2>nul
 if errorlevel 1 (
     echo Installing dependencies ^(first run only^) ...
     "%VENV_PY%" -m pip install --upgrade pip >nul 2>nul

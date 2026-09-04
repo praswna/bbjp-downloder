@@ -81,8 +81,15 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     if args.gui:
-        from .gui import launch
-        return launch(_config_from_args(args))
+        cfg = _config_from_args(args)
+        try:
+            from .qt_gui import launch as qt_launch  # PySide6
+        except ImportError:
+            from .gui import launch as tk_launch
+            print("PySide6 not found — using the basic GUI. "
+                  "For the modern UI: pip install PySide6")
+            return tk_launch(cfg)
+        return qt_launch(cfg)
 
     if not args.name:
         build_parser().error("a name is required (or use --gui)")
