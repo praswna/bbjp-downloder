@@ -111,7 +111,10 @@ class Config:
     max_workers: int = 4              # concurrent image downloads
 
     # Behaviour
-    obey_robots: bool = True          # honour robots.txt (warn + skip if disallowed)
+    # robots.txt on this site disallows the /tag, /category and search paths the
+    # downloader needs, so it is OFF by default (the tool is for personal,
+    # rate-limited use). Turn it back on with obey_robots=True / --obey-robots.
+    obey_robots: bool = False         # honour robots.txt (warn + skip if disallowed)
     full_size: bool = True            # strip WordPress -WxH suffixes to fetch originals
     overwrite: bool = False           # re-download files that already exist
     max_galleries: int | None = None  # cap number of galleries (None = all)

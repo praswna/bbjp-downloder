@@ -116,7 +116,7 @@ Common options:
 | `--limit N` | Maximum number of galleries | all |
 | `--overwrite` | Re-download existing files | off |
 | `--no-full-size` | Keep resized images, don't fetch originals | off |
-| `--ignore-robots` | Skip the `robots.txt` check | off |
+| `--obey-robots` | Honour `robots.txt` (off by default — see below) | off |
 | `--base-url URL` | Point at a different site | `bigboobsjapan.com` |
 | `--list` | List galleries only, don't download | — |
 | `--gui` | Launch the graphical interface | — |
@@ -193,8 +193,11 @@ The tests use local HTML fixtures and stubbed HTTP, so they run offline.
 
 - This tool is intended for **personal, lawful use** — e.g. archiving content
   you are permitted to save.
-- **Respect the site.** Keep the default delay (or increase it), don't run many
-  workers, and leave `robots.txt` checking on unless you have a good reason.
+- **Respect the site.** Keep the default delay (or increase it) and don't run
+  many workers. This site's `robots.txt` disallows the very paths the tool needs
+  (`/tag/`, `/category/`, search), so the check is **off by default**; the
+  built-in request throttling stays on. Enable the check with `--obey-robots` if
+  you prefer, understanding it will stop the tool from finding galleries here.
 - **Respect copyright and Terms of Service.** Downloaded images remain the
   property of their respective rights holders. Do not redistribute.
 - **Adults only.** Use exclusively for content depicting consenting adults.

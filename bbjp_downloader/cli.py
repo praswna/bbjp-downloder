@@ -40,9 +40,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-full-size", dest="full_size", action="store_false",
                    default=None,
                    help="Keep resized images instead of upgrading to originals.")
-    p.add_argument("--ignore-robots", dest="obey_robots", action="store_false",
+    p.add_argument("--obey-robots", dest="obey_robots", action="store_true",
                    default=None,
-                   help="Do not consult robots.txt (use responsibly).")
+                   help=("Honour robots.txt. Off by default because the site "
+                         "disallows the paths this tool needs; keep the request "
+                         "delay and use responsibly."))
     p.add_argument("--list", action="store_true",
                    help="Only list matching galleries; do not download.")
     p.add_argument("--gui", action="store_true",
