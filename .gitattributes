@@ -1,0 +1,8 @@
+# Batch files must use CRLF so they run correctly on Windows.
+*.bat text eol=crlf
+
+# Keep everything else with LF.
+*.py text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+*.toml text eol=lf

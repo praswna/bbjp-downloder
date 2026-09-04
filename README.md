@@ -46,6 +46,23 @@ Dependencies: [`requests`](https://pypi.org/project/requests/) and
 [`beautifulsoup4`](https://pypi.org/project/beautifulsoup4/). The GUI uses
 Tkinter, which ships with most CPython installs.
 
+## Windows: just double-click
+
+No command line needed. In the project folder you'll find ready-to-run `.bat`
+files — double-click one:
+
+| File | What it does |
+| --- | --- |
+| **`bbjp-downloader.bat`** | Opens the graphical app (enter a name, pick a folder, Download). |
+| **`download.bat`** | Asks for a name in a console window, then downloads. |
+| **`setup.bat`** | Optional. Pre-installs everything so the first run is instant. |
+
+On the **first** run the launcher automatically creates a local Python
+environment (`.venv`) and installs the dependencies — this needs an internet
+connection and takes a minute. After that it starts immediately. You only need
+[Python 3](https://www.python.org/downloads/) installed (tick *"Add Python to
+PATH"* in its installer).
+
 ## Usage
 
 ### Command line
