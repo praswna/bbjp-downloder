@@ -51,6 +51,22 @@ class Gallery:
         return path.rsplit("/", 1)[-1] or "gallery"
 
 
+@dataclass
+class GalleryStub:
+    """Lightweight listing entry (title + featured thumbnail) taken straight
+    from a listing page, so the UI can show a card before the full post is
+    fetched. Call :meth:`Scraper.extract_images` on ``url`` for the images."""
+
+    url: str
+    title: str
+    thumb: str | None = None
+
+    @property
+    def slug(self) -> str:
+        path = urlparse(self.url).path.strip("/")
+        return path.rsplit("/", 1)[-1] or "gallery"
+
+
 def slugify(name: str) -> str:
     """Turn a display name into a WordPress-style tag slug.
 
@@ -198,13 +214,13 @@ class Scraper:
         are extracted lazily by the caller via :meth:`extract_images`, but this
         method returns fully-populated :class:`Gallery` objects for convenience.
         """
-        post_urls = self.find_gallery_urls(name)
+        stubs = self._collect_listing_items(name)
         galleries: list[Gallery] = []
-        for url in post_urls:
+        for stub in stubs:
             if self._cancelled():
                 logger.info("cancelled — stopping gallery scan")
                 break
-            gallery = self.extract_images(url)
+            gallery = self.extract_images(stub.url)
             if gallery and gallery.images:
                 galleries.append(gallery)
                 logger.info(
@@ -212,23 +228,31 @@ class Scraper:
                     len(gallery.images),
                 )
             else:
-                logger.info("  %s — no images found", url)
+                logger.info("  %s — no images found", stub.url)
             if (self.config.max_galleries is not None
                     and len(galleries) >= self.config.max_galleries):
                 break
         return galleries
 
-    def find_gallery_urls(self, name: str) -> list[str]:
-        """Collect gallery/post URLs for a name — or a pasted listing URL.
+    def find_gallery_stubs(self, name: str) -> list[GalleryStub]:
+        """Return listing entries (title + thumbnail + URL) without fetching
+        each post — fast enough to render a UI immediately."""
+        return self._collect_listing_items(name)
 
-        If ``name`` is itself a URL (e.g. a ``/category/…/`` or ``/tag/…/``
-        page) it is scraped directly. Otherwise we try, in order: category/tag
-        links discovered from the site search, then ``/category/<slug>/`` and
-        ``/tag/<slug>/`` guesses, and finally the raw search results — stopping
-        as soon as an authoritative listing yields galleries.
+    def find_gallery_urls(self, name: str) -> list[str]:
+        """Collect gallery/post URLs for a name — or a pasted listing URL."""
+        return [stub.url for stub in self._collect_listing_items(name)]
+
+    def _collect_listing_items(self, name: str) -> list[GalleryStub]:
+        """Walk the listing candidates and gather de-duplicated gallery stubs.
+
+        If ``name`` is a URL it is scraped directly. Otherwise we try, in order:
+        category/tag links discovered from search, then ``/category/<slug>/``
+        and ``/tag/<slug>/`` guesses, then raw search — stopping as soon as an
+        authoritative listing yields galleries.
         """
         seen: set[str] = set()
-        ordered: list[str] = []
+        ordered: list[GalleryStub] = []
 
         for listing_url, authoritative, is_guess in self._listing_urls(name):
             if self._cancelled():
@@ -238,7 +262,8 @@ class Scraper:
                 resp = self.get(page_url)
                 if resp is None:
                     break
-                links = self._extract_post_links(resp.text, page_url)
+                items = self._extract_listing_items(resp.text, page_url)
+                links = [it.url for it in items]
                 # This site doesn't 404 for a missing tag/category or for a
                 # page past the last one — it shows the homepage's latest
                 # posts. Detect that and stop, discarding the page's links:
@@ -254,10 +279,10 @@ class Scraper:
                         page_url, where,
                     )
                     break
-                new = [u for u in links if u not in seen]
-                for u in new:
-                    seen.add(u)
-                    ordered.append(u)
+                new = [it for it in items if it.url not in seen]
+                for it in new:
+                    seen.add(it.url)
+                    ordered.append(it)
                 found_here += len(new)
                 logger.info(
                     "listing %s → %d new gallery link(s) (%d total)",
@@ -265,7 +290,7 @@ class Scraper:
                 )
                 # Stop when a page is empty, or yields nothing new (a
                 # last-page redirect back to page 1 repeats known links).
-                if not links or not new:
+                if not items or not new:
                     break
                 if (self.config.max_galleries is not None
                         and len(ordered) >= self.config.max_galleries):
@@ -419,6 +444,46 @@ class Scraper:
             for a in article.find_all("a", href=True):
                 add(a["href"])
         return links
+
+    def _extract_listing_items(self, html: str, page_url: str) -> "list[GalleryStub]":
+        """Extract per-post stubs (URL + title + featured thumbnail) from a
+        listing page, so the UI can show cards without opening each post."""
+        soup = BeautifulSoup(html, "html.parser")
+        articles = soup.find_all("article")
+        if not articles:
+            # No article wrappers — fall back to URL-only stubs.
+            return [GalleryStub(url=u, title=u)
+                    for u in self._extract_post_links(html, page_url)]
+
+        items: list[GalleryStub] = []
+        seen: set[str] = set()
+        for art in articles:
+            a = (art.select_one("a.entry-featured-img-link")
+                 or art.select_one(".entry-featured-img-wrap a")
+                 or art.select_one(".entry-title a"))
+            if a is None or not a.get("href"):
+                continue
+            url = urljoin(page_url, a["href"])
+            if not self._looks_like_post(url) or url in seen:
+                continue
+            seen.add(url)
+
+            img = (art.select_one(".entry-featured-img-wrap img")
+                   or a.find("img") or art.find("img"))
+            thumb = self._best_img_url(img) if img is not None else None
+            if thumb:
+                thumb = urljoin(page_url, thumb.strip())
+
+            title_el = art.select_one(".entry-title")
+            title = title_el.get_text(strip=True) if title_el else ""
+            if not title and img is not None:
+                title = (img.get("alt") or "").strip()
+            items.append(GalleryStub(url=url, title=title or url, thumb=thumb))
+
+        if not items:  # articles present but none matched — degrade gracefully
+            return [GalleryStub(url=u, title=u)
+                    for u in self._extract_post_links(html, page_url)]
+        return items
 
     @staticmethod
     def _host(netloc: str) -> str:

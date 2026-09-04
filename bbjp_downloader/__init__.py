@@ -13,7 +13,7 @@ import logging
 
 from .config import Config
 from .downloader import Downloader, DownloadStats
-from .scraper import Gallery, Scraper, slugify
+from .scraper import Gallery, GalleryStub, Scraper, slugify
 
 __all__ = [
     "Config",
@@ -21,6 +21,7 @@ __all__ = [
     "Downloader",
     "DownloadStats",
     "Gallery",
+    "GalleryStub",
     "slugify",
     "run",
 ]

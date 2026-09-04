@@ -132,12 +132,18 @@ python -m bbjp_downloader --gui
 ```
 
 Enter a name (or paste a URL) and press **Search**. Each matching gallery
-appears as a card with a **thumbnail**, its title, image count, and its own
-**Download** button — so you can grab just the sets you want, or press
-**Download all** in the toolbar. **Stop** cancels the current operation; files
-already downloaded are kept, and running again resumes (existing files are
-skipped). The window stays responsive because all network work runs on
-background threads.
+appears **immediately** as a card with its **thumbnail** and title; the image
+count fills in afterwards on a background thread. Every card has its own
+**Download** button — grab just the sets you want, or press **Download all**.
+
+Toolbar & niceties:
+
+- **Open folder** — reveal the save location in your file manager.
+- **Settings ⚙** — workers, request delay, full-size toggle and save location
+  live here (out of the main view).
+- **Copy** / **Clear** the log; the log also resets on each new search.
+- **Stop** cancels the current operation; files already downloaded are kept,
+  and running again resumes (existing files are skipped).
 
 Thumbnails use [Pillow](https://pypi.org/project/pillow/). If it isn't
 installed the cards simply show a placeholder and everything else still works.
