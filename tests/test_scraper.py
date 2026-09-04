@@ -446,3 +446,50 @@ def test_run_cancelled_before_download_returns_empty(monkeypatch):
     )
     stats = run("whoever", Config(obey_robots=False), cancel_event=event)
     assert (stats.downloaded, stats.failed) == (0, 0)
+
+
+# --------------------------------------------------------------------------
+# rate-limit handling (avoiding bans)
+# --------------------------------------------------------------------------
+
+def test_retry_after_seconds():
+    from bbjp_downloader.scraper import _retry_after_seconds
+
+    class WithHeader:
+        headers = {"Retry-After": "12"}
+
+    class NoHeader:
+        headers = {}
+
+    assert _retry_after_seconds(WithHeader(), 1) == 12.0
+    assert _retry_after_seconds(NoHeader(), 1) == 5.0     # 5 * 2**0
+    assert _retry_after_seconds(NoHeader(), 3) == 20.0    # 5 * 2**2
+    assert _retry_after_seconds(NoHeader(), 20) == 120.0  # capped
+
+
+def test_scraper_get_backs_off_on_429(monkeypatch):
+    import bbjp_downloader.scraper as sc
+
+    scraper = Scraper(Config(obey_robots=False, request_delay=0, retries=3))
+    calls = {"n": 0}
+
+    class Resp:
+        def __init__(self, status):
+            self.status_code = status
+            self.headers = {}
+            self.text = "ok"
+
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                raise RuntimeError("http error")
+
+    def fake_get(url, timeout=None):
+        calls["n"] += 1
+        return Resp(429) if calls["n"] == 1 else Resp(200)
+
+    monkeypatch.setattr(scraper.session, "get", fake_get)
+    monkeypatch.setattr(sc.time, "sleep", lambda s: None)  # no real waiting
+
+    resp = scraper.get("https://www.bigboobsjapan.com/tag/x/")
+    assert resp is not None and resp.status_code == 200
+    assert calls["n"] == 2  # retried once after the 429

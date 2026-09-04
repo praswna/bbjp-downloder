@@ -15,6 +15,7 @@ generic heuristics, so small theme changes do not break the tool.
 from __future__ import annotations
 
 import logging
+import random
 import re
 import threading
 import time
@@ -65,6 +66,20 @@ def slugify(name: str) -> str:
     return name
 
 
+def _retry_after_seconds(resp, attempt: int) -> float:
+    """How long to wait after an HTTP 429, honouring ``Retry-After`` if given.
+
+    Falls back to an exponential back-off (5s, 10s, 20s, …) capped at 120s.
+    """
+    header = resp.headers.get("Retry-After")
+    if header:
+        try:
+            return max(1.0, min(float(header), 120.0))
+        except ValueError:
+            pass
+    return float(min(5 * 2 ** (attempt - 1), 120))
+
+
 def is_url(text: str) -> bool:
     """True if ``text`` looks like an http(s) URL rather than a bare name."""
     try:
@@ -105,8 +120,12 @@ class Scraper:
         return self.cancel_event is not None and self.cancel_event.is_set()
 
     def _throttle(self) -> None:
-        elapsed = time.monotonic() - self._last_request
-        wait = self.config.request_delay - elapsed
+        # Base delay plus random jitter, so the request cadence isn't a
+        # perfectly regular (bot-like) tick that's easy to rate-limit.
+        target = self.config.request_delay
+        if target > 0:
+            target += random.uniform(0, target * 0.5)
+        wait = target - (time.monotonic() - self._last_request)
         if wait > 0:
             time.sleep(wait)
         self._last_request = time.monotonic()
@@ -124,6 +143,12 @@ class Scraper:
             self._throttle()
             try:
                 resp = self.session.get(url, timeout=self.config.timeout)
+                if resp.status_code == 429:   # Too Many Requests — back off
+                    delay = _retry_after_seconds(resp, attempt)
+                    logger.warning(
+                        "rate limited (429) on %s — waiting %.0fs", url, delay)
+                    time.sleep(delay)
+                    continue
                 if resp.status_code == 404:
                     logger.debug("404 for %s", url)
                     return None

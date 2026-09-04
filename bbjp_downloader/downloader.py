@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import os
+import random
 import re
 import threading
 import time
@@ -23,7 +24,12 @@ from urllib.parse import unquote, urlparse
 import requests
 
 from .config import Config
-from .scraper import _RESIZE_SUFFIX, _SCALED_SUFFIX, Gallery
+from .scraper import (
+    _RESIZE_SUFFIX,
+    _SCALED_SUFFIX,
+    _retry_after_seconds,
+    Gallery,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -83,10 +89,13 @@ class Downloader:
 
     def _throttle(self) -> None:
         # Serialise the *inter-request gap* across worker threads so overall
-        # request rate stays bounded even with concurrency.
+        # request rate stays bounded even with concurrency, plus jitter so the
+        # cadence isn't a regular bot-like tick.
         with self._rate_lock:
-            elapsed = time.monotonic() - self._last_request
-            wait = self.config.request_delay - elapsed
+            target = self.config.request_delay
+            if target > 0:
+                target += random.uniform(0, target * 0.5)
+            wait = target - (time.monotonic() - self._last_request)
             if wait > 0:
                 time.sleep(wait)
             self._last_request = time.monotonic()
@@ -102,9 +111,15 @@ class Downloader:
                     url, timeout=self.config.timeout, stream=True,
                     headers={"Referer": self.config.base_url},
                 )
+                if resp.status_code == 429:   # Too Many Requests — back off
+                    delay = _retry_after_seconds(resp, attempt)
+                    resp.close()
+                    logger.warning("rate limited (429) — waiting %.0fs", delay)
+                    time.sleep(delay)
+                    continue
                 # Don't waste retries on a genuine client error (e.g. a 404
                 # when probing for a full-size original) — bail out at once.
-                if 400 <= resp.status_code < 500 and resp.status_code != 429:
+                if 400 <= resp.status_code < 500:
                     resp.close()
                     return None
                 resp.raise_for_status()

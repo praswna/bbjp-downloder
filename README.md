@@ -157,6 +157,30 @@ galleries = scraper.find_galleries("Some Name")   # discovery
 Downloader(config).download_all(galleries, "Some Name")  # download
 ```
 
+## Avoiding rate limits / bans
+
+Heavy scraping *can* get your IP temporarily rate-limited or blocked. This tool
+is built to stay well under that line, and you can tune it further:
+
+- **Global throttle.** Requests are spaced by `--delay` (default 1s) and that
+  gap is enforced *across all workers*, so more workers make writing to disk
+  faster without increasing the request rate. There's random jitter on top so
+  the cadence doesn't look like a metronome.
+- **Backs off on `429`.** If the server says "Too Many Requests" the tool waits
+  (honouring the `Retry-After` header) instead of hammering it.
+- **Realistic headers & retries** with exponential backoff on transient errors.
+
+Practical tips:
+
+- Leave `--delay` at 1s or raise it (`--delay 2`–`3`) for large batches.
+- Keep `--workers` modest (2–4). It won't speed up requests anyway.
+- Grab one person at a time rather than looping many back-to-back; take breaks.
+- If you ever see `429` / rate-limit messages, stop for a while and use a bigger
+  delay next time.
+
+None of this is a guarantee — but at ~1 request/second it behaves like a slow
+human browser, which is about as safe as scraping gets.
+
 ## How it works
 
 1. **Discovery** (`scraper.py`): if you pass a URL it is scraped directly.
