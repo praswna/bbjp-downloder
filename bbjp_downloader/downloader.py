@@ -23,7 +23,7 @@ from urllib.parse import unquote, urlparse
 import requests
 
 from .config import Config
-from .scraper import Gallery
+from .scraper import _RESIZE_SUFFIX, _SCALED_SUFFIX, Gallery
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +95,11 @@ class Downloader:
                     url, timeout=self.config.timeout, stream=True,
                     headers={"Referer": self.config.base_url},
                 )
+                # Don't waste retries on a genuine client error (e.g. a 404
+                # when probing for a full-size original) — bail out at once.
+                if 400 <= resp.status_code < 500 and resp.status_code != 429:
+                    resp.close()
+                    return None
                 resp.raise_for_status()
                 return resp
             except requests.RequestException as exc:
@@ -102,6 +107,14 @@ class Downloader:
                 time.sleep(min(2 ** attempt, 30))
         logger.debug("failed to fetch %s: %s", url, last_exc)
         return None
+
+    def _full_size_candidates(self, url: str) -> list[str]:
+        """URLs to try for one image: the un-resized original first (when
+        ``full_size`` is on), then the exact URL the page gave us."""
+        if not self.config.full_size:
+            return [url]
+        stripped = _SCALED_SUFFIX.sub("", _RESIZE_SUFFIX.sub("", url))
+        return [stripped, url] if stripped != url else [url]
 
     # ---- public API -------------------------------------------------------
 
@@ -172,7 +185,12 @@ class Downloader:
         if target.exists() and target.stat().st_size > 0 and not self.config.overwrite:
             return "skipped", 0
 
-        resp = self._fetch(url)
+        # Try the full-size original first, then fall back to the page's URL.
+        resp = None
+        for candidate in self._full_size_candidates(url):
+            resp = self._fetch(candidate)
+            if resp is not None:
+                break
         if resp is None:
             return "failed", 0
         try:

@@ -241,7 +241,12 @@ class Scraper:
         for url in self._discover_taxonomy_urls(name):
             candidates.append((url, True))
 
-        # 3) Direct guesses, in case the slug is simple.
+        # 3) Direct guesses. The uppercase tag (e.g. /tag/SHINOZAKI-AI/) is the
+        #    form this site actually uses for romaji names, so it comes first;
+        #    lowercase category/tag variants cover other cases.
+        upper = quote(name.strip().upper().replace(" ", "-"), safe="-")
+        if upper:
+            candidates.append((f"{base}/tag/{upper}/", True))
         slug = slugify(name)
         if slug:
             enc = quote(slug, safe="-")  # keep hyphens; %-encode non-ASCII
@@ -391,25 +396,46 @@ class Scraper:
             seen.add(absolute)
             images.append(absolute)
 
-        # 1) Anchor links pointing directly at full-resolution images.
+        # 1) Anchor links pointing directly at full-resolution image files
+        #    (generic sites; on this theme the gallery <a> links to attachment
+        #    pages, which don't end in an image extension and so are ignored).
         for a in scope.find_all("a", href=True):
             href = a["href"]
             if any(href.lower().split("?")[0].endswith(ext)
                    for ext in self.config.image_extensions):
                 add(href)
 
-        # 2) <img> tags (including common lazy-load attributes).
-        for img in scope.find_all("img"):
-            candidate = (
-                img.get("data-src")
-                or img.get("data-lazy-src")
-                or img.get("data-original")
-                or self._largest_from_srcset(img.get("srcset"))
-                or img.get("src")
-            )
+        # 2) Gallery images. Prefer the theme's explicit gallery items; if the
+        #    page has none, fall back to every <img> in the content area.
+        img_tags = []
+        for selector in self.config.gallery_image_selectors:
+            img_tags = soup.select(selector)
+            if img_tags:
+                break
+        if not img_tags:
+            img_tags = scope.find_all("img")
+
+        for img in img_tags:
+            candidate = self._best_img_url(img)
             add(candidate)
 
         return Gallery(url=gallery_url, title=title, images=images)
+
+    def _best_img_url(self, img) -> str | None:
+        """Pick the best URL for an <img>, preferring the largest srcset.
+
+        Mirrors the proven approach: take the highest-resolution srcset
+        candidate, then fall back to lazy-load attributes and finally ``src``.
+        """
+        return (
+            self._largest_from_srcset(img.get("srcset"))
+            or self._largest_from_srcset(img.get("data-srcset"))
+            or self._largest_from_srcset(img.get("data-lazy-srcset"))
+            or img.get("data-src")
+            or img.get("data-lazy-src")
+            or img.get("data-original")
+            or img.get("src")
+        )
 
     def _extract_title(self, soup: BeautifulSoup) -> str | None:
         for selector in ("h1.entry-title", ".entry-title", "h1", "title"):
@@ -426,11 +452,14 @@ class Scraper:
         return None
 
     def _normalise_image(self, url: str) -> str | None:
-        """Optionally upgrade a resized WordPress image to its original."""
-        if not self.config.full_size:
-            return url
-        upgraded = _SCALED_SUFFIX.sub("", _RESIZE_SUFFIX.sub("", url))
-        return upgraded
+        """Return the image URL as-is.
+
+        We keep the exact (largest-srcset) URL the page provided, because it is
+        guaranteed to exist. Upgrading to the un-resized original is done at
+        download time (see ``Downloader``), which can fall back to this URL if
+        the original 404s.
+        """
+        return url
 
     def _is_content_image(self, url: str) -> bool:
         low = url.lower().split("?")[0]

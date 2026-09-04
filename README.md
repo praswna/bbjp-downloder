@@ -161,13 +161,21 @@ Downloader(config).download_all(galleries, "Some Name")  # download
    `/category/<slug>/` and `/tag/<slug>/`, and finally the raw search results.
    Listing pages are paginated (`/page/N/`) and each result's post link is
    collected, filtering out taxonomy/feed/pagination links.
-2. **Extraction**: each gallery post is fetched and its `.entry-content` is
-   scanned for images — both full-size `<a href="…jpg">` links and `<img>` tags
-   (including lazy-loaded `data-src`/`srcset`). Chrome (avatars, logos, ads) is
-   filtered out and resized variants are upgraded to originals.
+2. **Extraction**: each post's gallery items (`div.gallery-item img`, etc.) are
+   read and the **largest `srcset` candidate** is taken for every image — the
+   same approach as the reference implementation. If a page has no gallery
+   blocks it falls back to every `<img>` in the content area (plus any direct
+   `<a href="…jpg">` links). Thumbnails, avatars, logos and ads are filtered out.
 3. **Download** (`downloader.py`): images are fetched concurrently under a
    shared rate limit, written atomically via a `.part` temp file, and named
-   `NNNN_<original>.ext`. Existing files are skipped.
+   `NNNN_<original>.ext`. With `--full-size` (default on) it first tries the
+   un-resized original and falls back to the exact page URL if that 404s, so
+   downloads never fail just because the original isn't published. Existing
+   files are skipped.
+
+The listing and image selectors that match this specific site
+(`a.entry-featured-img-link`, `div.gallery-item img`, the uppercase `/tag/NAME/`
+route) were derived from a known-working scraper for it.
 
 If the site's theme changes, override the selectors on `Config`
 (`listing_selectors`, `content_selectors`) rather than editing the code.

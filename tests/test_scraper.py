@@ -175,50 +175,67 @@ def test_extract_post_links_filters_non_posts():
 # image extraction
 # --------------------------------------------------------------------------
 
+# Mirrors the real theme: WordPress "gallery-item" blocks whose <a> points at
+# an attachment *page* (not a file) and whose <img> carries a srcset.
 GALLERY_HTML = """
 <html><body>
   <h1 class="entry-title">Great Set</h1>
   <div class="entry-content">
-    <a href="/wp-content/uploads/2020/01/img1.jpg">
-      <img src="/wp-content/uploads/2020/01/img1-300x200.jpg"/>
-    </a>
-    <img src="/wp-content/uploads/2020/01/img2-1024x768.jpg"
-         srcset="/wp-content/uploads/2020/01/img2-300x200.jpg 300w,
-                 /wp-content/uploads/2020/01/img2-1024x768.jpg 1024w"/>
-    <img data-src="/wp-content/uploads/2020/01/img3.png"/>
-    <img src="/wp-content/uploads/logo.png"/>            <!-- blocked -->
-    <img src="/wp-content/uploads/gravatar/avatar.jpg"/> <!-- blocked -->
+    <div class="gallery">
+      <div class="gallery-item col-3">
+        <a href="https://www.bigboobsjapan.com/great-set/img1/">
+          <img src="/wp-content/uploads/2020/01/img1-150x150.jpg"
+               srcset="/wp-content/uploads/2020/01/img1-768x1024.jpg 768w,
+                       /wp-content/uploads/2020/01/img1-1024x1365.jpg 1024w"/>
+        </a>
+      </div>
+      <div class="gallery-item col-3">
+        <a href="https://www.bigboobsjapan.com/great-set/img2/">
+          <img src="/wp-content/uploads/2020/01/img2-150x150.jpg"
+               srcset="/wp-content/uploads/2020/01/img2-1024x1365.jpg 1024w,
+                       /wp-content/uploads/2020/01/img2-768x1024.jpg 768w"/>
+        </a>
+      </div>
+    </div>
+    <img src="/wp-content/uploads/logo.png"/>   <!-- chrome, outside gallery -->
   </div>
 </body></html>
 """
 
 
-def test_extract_images(monkeypatch):
-    scraper = Scraper(Config(full_size=True))
+def test_extract_images_uses_largest_gallery_srcset(monkeypatch):
+    scraper = Scraper(Config())
     monkeypatch.setattr(
-        scraper, "get",
-        lambda url: FakeResponse(text=GALLERY_HTML))
+        scraper, "get", lambda url: FakeResponse(text=GALLERY_HTML))
     gallery = scraper.extract_images("https://www.bigboobsjapan.com/great-set/")
     assert gallery is not None
     assert gallery.title == "Great Set"
     base = "https://www.bigboobsjapan.com/wp-content/uploads/2020/01"
-    # img1 from the <a href>; img2 upgraded to original; img3 from data-src.
-    assert f"{base}/img1.jpg" in gallery.images
-    assert f"{base}/img2.jpg" in gallery.images        # -1024x768 stripped
-    assert f"{base}/img3.png" in gallery.images
-    # Chrome images excluded.
-    assert not any("logo" in u or "gravatar" in u for u in gallery.images)
+    # The largest srcset candidate is taken for each gallery image, verbatim
+    # (no suffix stripping in the scraper).
+    assert f"{base}/img1-1024x1365.jpg" in gallery.images
+    assert f"{base}/img2-1024x1365.jpg" in gallery.images
+    # Thumbnails, the logo, and attachment-page anchors are excluded.
+    assert all("150x150" not in u for u in gallery.images)
+    assert not any("logo" in u for u in gallery.images)
+    assert not any(u.rstrip("/").endswith("img1") for u in gallery.images)
 
 
-def test_full_size_disabled_keeps_resized(monkeypatch):
-    scraper = Scraper(Config(full_size=False))
-    monkeypatch.setattr(
-        scraper, "get",
-        lambda url: FakeResponse(text=GALLERY_HTML))
+def test_extract_images_falls_back_to_content_imgs(monkeypatch):
+    # A page with no gallery-item blocks: every <img> in the content is used.
+    html = """
+    <html><body><div class="entry-content">
+      <img src="/wp-content/uploads/a-1024x768.jpg"
+           srcset="/wp-content/uploads/a-1024x768.jpg 1024w"/>
+      <img data-src="/wp-content/uploads/b.png"/>
+    </div></body></html>
+    """
+    scraper = Scraper(Config())
+    monkeypatch.setattr(scraper, "get", lambda url: FakeResponse(text=html))
     gallery = scraper.extract_images("https://www.bigboobsjapan.com/x/")
-    base = "https://www.bigboobsjapan.com/wp-content/uploads/2020/01"
-    # With full_size off, the srcset's largest (1024) is kept as-is.
-    assert f"{base}/img2-1024x768.jpg" in gallery.images
+    urls = gallery.images
+    assert "https://www.bigboobsjapan.com/wp-content/uploads/a-1024x768.jpg" in urls
+    assert "https://www.bigboobsjapan.com/wp-content/uploads/b.png" in urls
 
 
 def test_largest_from_srcset():
@@ -294,3 +311,86 @@ def test_download_missing_extension_uses_content_type(tmp_path, monkeypatch):
     assert stats.downloaded == 1
     saved = list((tmp_path / "Set").iterdir())
     assert saved[0].suffix == ".png"
+
+
+def test_full_size_tries_original_first(tmp_path, monkeypatch):
+    config = Config(output_dir=tmp_path, request_delay=0, full_size=True)
+    downloader = Downloader(config)
+    tried: list[str] = []
+
+    def fake_fetch(url):
+        tried.append(url)
+        return FakeResponse(content=b"orig",
+                            headers={"Content-Type": "image/jpeg"})
+
+    monkeypatch.setattr(downloader, "_fetch", fake_fetch)
+    gallery = Gallery(url="https://x/s/", title="S",
+                      images=["https://x/photo-1024x768.jpg"])
+    stats = downloader.download_gallery(gallery, tmp_path)
+    assert stats.downloaded == 1
+    # The un-resized original is attempted before the page's URL.
+    assert tried[0] == "https://x/photo.jpg"
+
+
+def test_full_size_falls_back_to_resized(tmp_path, monkeypatch):
+    config = Config(output_dir=tmp_path, request_delay=0, full_size=True)
+    downloader = Downloader(config)
+
+    def fake_fetch(url):
+        if url == "https://x/photo.jpg":       # original missing (404 -> None)
+            return None
+        return FakeResponse(content=b"resized",
+                            headers={"Content-Type": "image/jpeg"})
+
+    monkeypatch.setattr(downloader, "_fetch", fake_fetch)
+    gallery = Gallery(url="https://x/s/", title="S",
+                      images=["https://x/photo-1024x768.jpg"])
+    stats = downloader.download_gallery(gallery, tmp_path)
+    assert stats.downloaded == 1
+    saved = list((tmp_path / "S").iterdir())
+    assert saved and saved[0].read_bytes() == b"resized"
+
+
+# --------------------------------------------------------------------------
+# theme-specific selectors (from the reference implementation)
+# --------------------------------------------------------------------------
+
+FEATURED_LISTING_HTML = """
+<html><body>
+  <div id="content">
+    <article>
+      <div class="entry-featured-img-wrap">
+        <a class="entry-featured-img-link"
+           href="https://www.bigboobsjapan.com/2020/01/15/set-a/"></a>
+      </div>
+    </article>
+    <article>
+      <div class="entry-featured-img-wrap">
+        <a class="entry-featured-img-link" href="/2021/06/02/set-b/"></a>
+      </div>
+    </article>
+    <nav><div>
+      <a class="page-numbers" href="/tag/x/">1</a>
+      <a class="next page-numbers" href="/tag/x/page/2/">次へ</a>
+    </div></nav>
+  </div>
+</body></html>
+"""
+
+
+def test_listing_uses_featured_img_link():
+    scraper = Scraper(Config())
+    links = scraper._extract_post_links(
+        FEATURED_LISTING_HTML, "https://www.bigboobsjapan.com/tag/x/")
+    assert links == [
+        "https://www.bigboobsjapan.com/2020/01/15/set-a/",
+        "https://www.bigboobsjapan.com/2021/06/02/set-b/",
+    ]
+
+
+def test_listing_urls_include_uppercase_tag(monkeypatch):
+    scraper = Scraper(Config())
+    monkeypatch.setattr(scraper, "_discover_taxonomy_urls", lambda name: [])
+    plain = [u for u, _ in scraper._listing_urls("Shinozaki Ai")]
+    # The proven pattern is the uppercased tag slug.
+    assert "https://www.bigboobsjapan.com/tag/SHINOZAKI-AI/" in plain

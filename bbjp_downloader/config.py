@@ -23,14 +23,30 @@ DEFAULT_USER_AGENT = (
 
 # CSS selectors used to locate the *post/gallery* links on a listing page.
 # Ordered from most to least specific; the first selector that yields links
-# wins. Kept broad so the tool survives minor theme changes.
+# wins. The first two match this site's theme exactly (each post's featured
+# image is an <a class="entry-featured-img-link"> inside .entry-featured-img-wrap);
+# the rest are generic fallbacks so the tool survives theme changes.
 DEFAULT_LISTING_SELECTORS: Sequence[str] = (
+    "a.entry-featured-img-link",
+    ".entry-featured-img-wrap a",
     "h2.entry-title a",
     "h3.entry-title a",
     ".entry-title a",
     "article a[rel=bookmark]",
     "article h2 a",
     "article .post-title a",
+)
+
+# CSS selectors that locate gallery images inside a post. This site renders its
+# photo sets as WordPress gallery items whose <img> carries a srcset; the real
+# full-size URL is the largest srcset candidate. Tried before the generic
+# "every <img> in the content area" fallback.
+DEFAULT_GALLERY_IMAGE_SELECTORS: Sequence[str] = (
+    "div.gallery-item img",
+    "figure.gallery-item img",
+    "div.gallery-icon img",
+    ".wp-block-gallery img",
+    ".tiled-gallery img",
 )
 
 # CSS selectors used to locate the container holding a gallery's images.
@@ -103,6 +119,8 @@ class Config:
 
     # Selectors (advanced — override only if the theme changes)
     listing_selectors: Sequence[str] = field(default=DEFAULT_LISTING_SELECTORS)
+    gallery_image_selectors: Sequence[str] = field(
+        default=DEFAULT_GALLERY_IMAGE_SELECTORS)
     content_selectors: Sequence[str] = field(default=DEFAULT_CONTENT_SELECTORS)
     next_page_selectors: Sequence[str] = field(default=DEFAULT_NEXT_PAGE_SELECTORS)
     image_blocklist: Sequence[str] = field(default=DEFAULT_IMAGE_BLOCKLIST)
