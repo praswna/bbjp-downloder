@@ -120,29 +120,34 @@ def launch(config: Config | None = None) -> int:
             pass
         root.after(120, drain_queue)
 
-    def start() -> None:
-        if worker["t"] and worker["t"].is_alive():
-            return
-        name = name_var.get().strip()
-        if not name:
-            status_var.set("Please enter a name.")
-            return
-
+    def _build_config():
+        """Read the form into a Config, or return None on invalid input."""
         limit = None
         if limit_var.get().strip():
             try:
                 limit = int(limit_var.get())
             except ValueError:
                 status_var.set("Max galleries must be a whole number.")
-                return
-
-        run_config = config.with_overrides(
+                return None
+        return config.with_overrides(
             output_dir=Path(out_var.get() or "downloads"),
             max_workers=int(workers_var.get()),
             request_delay=float(delay_var.get()),
             max_galleries=limit,
             full_size=bool(fullsize_var.get()),
         )
+
+    def _launch(target, busy_status: str) -> None:
+        """Run ``target(name, cfg, cancel_event)`` on a background thread."""
+        if worker["t"] and worker["t"].is_alive():
+            return
+        name = name_var.get().strip()
+        if not name:
+            status_var.set("Please enter a name or URL.")
+            return
+        run_config = _build_config()
+        if run_config is None:
+            return
 
         handler = _QueueLogHandler(log_queue)
         handler.setFormatter(logging.Formatter("%(message)s"))
@@ -153,30 +158,63 @@ def launch(config: Config | None = None) -> int:
         cancel_event = threading.Event()
         worker["cancel"] = cancel_event
 
+        search_btn["state"] = "disabled"
         start_btn["state"] = "disabled"
         stop_btn["state"] = "normal"
-        status_var.set(f"Working on “{name}” …")
+        status_var.set(busy_status.format(name=name))
 
         def job() -> None:
             try:
-                stats = run(name, run_config, cancel_event=cancel_event)
-                verb = "Stopped" if cancel_event.is_set() else "Done"
-                log_queue.put(
-                    f"\n{verb}: {stats.downloaded} downloaded, "
-                    f"{stats.skipped} skipped, {stats.failed} failed "
-                    f"({stats.bytes_written / 1_048_576:.1f} MB)."
-                )
-                root.after(0, lambda: status_var.set(verb + "."))
+                target(name, run_config, cancel_event)
             except Exception as exc:  # surface any crash in the UI
                 log_queue.put(f"\nError: {exc}")
                 root.after(0, lambda: status_var.set("Error — see log."))
             finally:
                 pkg_logger.removeHandler(handler)
+                root.after(0, lambda: search_btn.configure(state="normal"))
                 root.after(0, lambda: start_btn.configure(state="normal"))
                 root.after(0, lambda: stop_btn.configure(state="disabled"))
 
         worker["t"] = threading.Thread(target=job, daemon=True)
         worker["t"].start()
+
+    def _do_search(name, cfg, cancel_event) -> None:
+        from .scraper import Scraper
+        log_queue.put(f"\nSearching galleries for “{name}” …")
+        galleries = Scraper(cfg, cancel_event=cancel_event).find_galleries(name)
+        if cancel_event.is_set():
+            log_queue.put("Search stopped.")
+            root.after(0, lambda: status_var.set("Search stopped."))
+            return
+        if not galleries:
+            log_queue.put("No galleries found.")
+            root.after(0, lambda: status_var.set("No galleries found."))
+            return
+        total_imgs = sum(len(g.images) for g in galleries)
+        log_queue.put(
+            f"Found {len(galleries)} gallery(ies), {total_imgs} image(s):")
+        for g in galleries:
+            log_queue.put(f"  • {g.title or g.slug}  ({len(g.images)} images)")
+            log_queue.put(f"      {g.url}")
+        log_queue.put("Press Download to save them.")
+        root.after(0, lambda: status_var.set(
+            f"Found {len(galleries)} gallery(ies). Ready to download."))
+
+    def _do_download(name, cfg, cancel_event) -> None:
+        stats = run(name, cfg, cancel_event=cancel_event)
+        verb = "Stopped" if cancel_event.is_set() else "Done"
+        log_queue.put(
+            f"\n{verb}: {stats.downloaded} downloaded, "
+            f"{stats.skipped} skipped, {stats.failed} failed "
+            f"({stats.bytes_written / 1_048_576:.1f} MB)."
+        )
+        root.after(0, lambda: status_var.set(verb + "."))
+
+    def search() -> None:
+        _launch(_do_search, "Searching “{name}” …")
+
+    def start() -> None:
+        _launch(_do_download, "Downloading “{name}” …")
 
     def stop() -> None:
         event = worker.get("cancel")
@@ -192,11 +230,15 @@ def launch(config: Config | None = None) -> int:
     stop_btn.pack(side="right")
     start_btn = ttk.Button(buttons, text="Download", command=start)
     start_btn.pack(side="right", padx=(0, 6))
-    name_entry.bind("<Return>", lambda _e: start())
+    search_btn = ttk.Button(buttons, text="Search", command=search)
+    search_btn.pack(side="right", padx=(0, 6))
+    name_entry.bind("<Return>", lambda _e: search())
 
     append(
         "Enter a name — or paste a gallery URL (e.g. a …/category/<name>/ "
-        "page) — and press Download.\n"
+        "page).\n"
+        "• Search  — list the matching galleries first (no download)\n"
+        "• Download — save every image  •  Stop — cancel (kept files stay)\n"
         "For personal, lawful use only — please respect the site's terms, "
         "robots.txt and copyright.\n"
     )
