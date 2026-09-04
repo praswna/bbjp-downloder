@@ -530,6 +530,31 @@ def test_nonexistent_tag_homepage_fallback_is_rejected(monkeypatch):
     assert scraper.find_gallery_urls("Miura Skura") == []
 
 
+def test_pagination_past_end_stops_at_fallback(monkeypatch):
+    # A real category with 2 pages of content; requesting page 3 (past the
+    # end) returns the homepage's latest posts. Those must be discarded.
+    scraper = Scraper(Config(obey_robots=False))
+    home = [f"https://www.bigboobsjapan.com/2024/0{i}/01/home-{i}/" for i in range(1, 6)]
+    p1 = [f"https://www.bigboobsjapan.com/2020/01/0{i}/real-{i}/" for i in range(1, 3)]
+    p2 = ["https://www.bigboobsjapan.com/2020/01/09/real-3/"]
+    url = "https://www.bigboobsjapan.com/category/miura/"
+
+    def fake_get(u):
+        if u.rstrip("/") == scraper.config.base_url.rstrip("/"):
+            return FakeResponse(text=_featured(home))
+        if "/page/2/" in u:
+            return FakeResponse(text=_featured(p2))
+        if "/page/3/" in u:                      # past the end → fallback
+            return FakeResponse(text=_featured(home))
+        if "/page/" in u:
+            return FakeResponse(text=_featured([]))
+        return FakeResponse(text=_featured(p1))  # page 1 (the category URL)
+
+    monkeypatch.setattr(scraper, "get", fake_get)
+    found = scraper.find_gallery_urls(url)
+    assert found == p1 + p2                       # the fallback page is dropped
+
+
 def test_real_tag_not_mistaken_for_fallback(monkeypatch):
     scraper = Scraper(Config(obey_robots=False))
     home = [f"https://www.bigboobsjapan.com/2024/0{i}/01/latest-{i}/" for i in range(1, 6)]

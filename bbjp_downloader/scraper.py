@@ -239,15 +239,19 @@ class Scraper:
                 if resp is None:
                     break
                 links = self._extract_post_links(resp.text, page_url)
-                # A non-existent tag/category doesn't 404 on this site — it
-                # shows the homepage's latest posts. Detect that on the first
-                # page of a *guessed* URL and discard it, so a typo'd name
-                # returns nothing instead of unrelated galleries.
-                if (is_guess and page_index == 0 and links
+                # This site doesn't 404 for a missing tag/category or for a
+                # page past the last one — it shows the homepage's latest
+                # posts. Detect that and stop, discarding the page's links:
+                #   * page 1 of a *guessed* URL → the archive doesn't exist
+                #   * any later page → we've paginated past the real content
+                # The first page of a discovered/real URL is trusted (a busy
+                # model's newest posts can legitimately match the homepage).
+                if (links and (is_guess or page_index > 0)
                         and self._is_homepage_fallback(links)):
+                    where = "no real archive" if page_index == 0 else "end of archive"
                     logger.info(
-                        "%s has no real archive (homepage fallback) — skipping",
-                        listing_url,
+                        "%s → homepage fallback (%s) — stopping",
+                        page_url, where,
                     )
                     break
                 new = [u for u in links if u not in seen]
