@@ -20,7 +20,11 @@ def build_parser() -> argparse.ArgumentParser:
             "terms of service, robots.txt and copyright."
         ),
     )
-    p.add_argument("name", nargs="?", help="Person/model name to search for.")
+    p.add_argument(
+        "name", nargs="?",
+        help=("Person/model name to search for, OR a gallery listing URL to "
+              "scrape directly (e.g. a .../category/<name>/ page)."),
+    )
     p.add_argument("-o", "--output", metavar="DIR", default=None,
                    help="Output directory (default: ./downloads).")
     p.add_argument("--base-url", default=None,

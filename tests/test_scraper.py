@@ -14,7 +14,19 @@ import pytest
 
 from bbjp_downloader.config import Config
 from bbjp_downloader.downloader import Downloader, sanitize_filename
-from bbjp_downloader.scraper import Gallery, Scraper, slugify
+from bbjp_downloader.scraper import (
+    Gallery,
+    Scraper,
+    is_url,
+    person_label,
+    slugify,
+)
+
+# A real-world category URL: romaji name + URL-encoded Japanese name.
+MIURA_URL = (
+    "https://www.bigboobsjapan.com/category/"
+    "miura-sakura-%e6%b0%b4%e5%8d%9c%e3%81%95%e3%81%8f%e3%82%89/"
+)
 
 
 class FakeResponse:
@@ -53,6 +65,68 @@ def test_slugify(name, expected):
 def test_slugify_preserves_unicode():
     # Japanese names should survive slugification (encoded later at request time)
     assert slugify("田中 舞") == "田中-舞"
+
+
+# --------------------------------------------------------------------------
+# URL / name resolution
+# --------------------------------------------------------------------------
+
+def test_is_url():
+    assert is_url(MIURA_URL)
+    assert is_url("http://example.com")
+    assert not is_url("Miura Sakura")
+    assert not is_url("")
+    assert not is_url("just/a/path")
+
+
+def test_person_label_from_url_decodes_slug():
+    assert person_label(MIURA_URL) == "miura-sakura-水卜さくら"
+
+
+def test_person_label_plain_name():
+    assert person_label("Miura Sakura") == "Miura Sakura"
+
+
+def test_listing_urls_passthrough_for_url():
+    scraper = Scraper(Config())
+    assert scraper._listing_urls(MIURA_URL) == [(MIURA_URL, True)]
+
+
+def test_listing_urls_tries_category_tag_then_search(monkeypatch):
+    scraper = Scraper(Config())
+    monkeypatch.setattr(scraper, "_discover_taxonomy_urls", lambda name: [])
+    urls = scraper._listing_urls("Miura Sakura")
+    plain = [u for u, _ in urls]
+    assert "https://www.bigboobsjapan.com/category/miura-sakura/" in plain
+    assert "https://www.bigboobsjapan.com/tag/miura-sakura/" in plain
+    # Search is present and flagged non-authoritative.
+    assert any(u.endswith("/?s=Miura+Sakura") and not auth for u, auth in urls)
+    # Category is tried before the tag guess.
+    assert plain.index("https://www.bigboobsjapan.com/category/miura-sakura/") \
+        < plain.index("https://www.bigboobsjapan.com/tag/miura-sakura/")
+
+
+SEARCH_HTML = """
+<html><body>
+  <article>
+    <h2 class="entry-title"><a href="/some-post/">A post</a></h2>
+    <a href="/category/miura-sakura-%e6%b0%b4%e5%8d%9c%e3%81%95%e3%81%8f%e3%82%89/">
+      Miura Sakura</a>
+  </article>
+  <a href="/category/other-person/">Someone else</a>
+  <a href="/tag/miura-sakura-photos/">tag link</a>
+</body></html>
+"""
+
+
+def test_discover_taxonomy_urls_matches_all_tokens(monkeypatch):
+    scraper = Scraper(Config())
+    monkeypatch.setattr(
+        scraper, "get", lambda url: FakeResponse(text=SEARCH_HTML))
+    found = scraper._discover_taxonomy_urls("Miura Sakura")
+    assert MIURA_URL in found                       # exact category discovered
+    assert any("miura-sakura-photos" in u for u in found)  # matching tag too
+    assert all("other-person" not in u for u in found)     # unrelated excluded
 
 
 # --------------------------------------------------------------------------

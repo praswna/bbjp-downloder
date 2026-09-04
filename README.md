@@ -65,11 +65,33 @@ PATH"* in its installer).
 
 ## Usage
 
+### Name or URL
+
+You can pass **either a name or a gallery URL**:
+
+- **A name** — the tool looks the person up. On this site each person has a
+  *category* page whose slug mixes romaji and Japanese (e.g.
+  `/category/miura-sakura-水卜さくら/`), so a typed name can't reproduce it
+  exactly. The tool therefore searches the site, finds the matching
+  `category`/`tag` page automatically, and falls back to search results.
+- **A URL** — paste the person's category/tag page directly and it is scraped
+  as-is. **This is the most reliable option**, especially for Japanese names:
+
+  ```bash
+  python -m bbjp_downloader "https://www.bigboobsjapan.com/category/miura-sakura-水卜さくら/"
+  ```
+
+  (In the GUI, paste the URL into the *Name / URL* box. Copy it straight from
+  your browser's address bar — encoded forms like `…%e6%b0%b4…` work too.)
+
 ### Command line
 
 ```bash
-# Download every gallery for a name
+# Download every gallery for a name (auto-finds the category page)
 python -m bbjp_downloader "Some Name"
+
+# ...or scrape a category/tag URL directly (most reliable)
+python -m bbjp_downloader "https://www.bigboobsjapan.com/category/<name>/"
 
 # ...or, if installed as a package:
 bbjp-downloader "Some Name"
@@ -132,10 +154,13 @@ Downloader(config).download_all(galleries, "Some Name")  # download
 
 ## How it works
 
-1. **Discovery** (`scraper.py`): the name is slugified and requested as a tag
-   page; failing that, as a search query. Listing pages are paginated
-   (`/page/N/`) and each result's post link is collected, filtering out
-   taxonomy/feed/pagination links.
+1. **Discovery** (`scraper.py`): if you pass a URL it is scraped directly.
+   Otherwise the name is looked up — first by searching the site and picking
+   the `category`/`tag` page whose slug contains every part of the name (this
+   is how romaji+Japanese slugs are matched), then by guessing
+   `/category/<slug>/` and `/tag/<slug>/`, and finally the raw search results.
+   Listing pages are paginated (`/page/N/`) and each result's post link is
+   collected, filtering out taxonomy/feed/pagination links.
 2. **Extraction**: each gallery post is fetched and its `.entry-content` is
    scanned for images — both full-size `<a href="…jpg">` links and `<img>` tags
    (including lazy-loaded `data-src`/`srcset`). Chrome (avatars, logos, ads) is

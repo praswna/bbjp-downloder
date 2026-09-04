@@ -49,7 +49,7 @@ def launch(config: Config | None = None) -> int:
     main.columnconfigure(1, weight=1)
 
     # --- Name ---
-    ttk.Label(main, text="Name:").grid(row=0, column=0, sticky="w", pady=4)
+    ttk.Label(main, text="Name / URL:").grid(row=0, column=0, sticky="w", pady=4)
     name_var = tk.StringVar()
     name_entry = ttk.Entry(main, textvariable=name_var)
     name_entry.grid(row=0, column=1, columnspan=2, sticky="ew", pady=4)
@@ -177,7 +177,8 @@ def launch(config: Config | None = None) -> int:
     name_entry.bind("<Return>", lambda _e: start())
 
     append(
-        "Enter a name and press Download.\n"
+        "Enter a name — or paste a gallery URL (e.g. a …/category/<name>/ "
+        "page) — and press Download.\n"
         "For personal, lawful use only — please respect the site's terms, "
         "robots.txt and copyright.\n"
     )

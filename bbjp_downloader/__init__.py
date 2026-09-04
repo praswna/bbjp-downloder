@@ -88,8 +88,9 @@ def _build_session(config: Config):
 
 def _safe(name: str) -> str:
     from .downloader import sanitize_filename
+    from .scraper import person_label
 
-    return sanitize_filename(name, "model")
+    return sanitize_filename(person_label(name), "model")
 
 
 def _emit(progress, event, **data):

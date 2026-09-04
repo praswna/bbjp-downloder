@@ -19,7 +19,7 @@ import re
 import time
 from dataclasses import dataclass
 from typing import Iterable, Iterator
-from urllib.parse import quote_plus, urljoin, urlparse
+from urllib.parse import quote, quote_plus, unquote, urljoin, urlparse
 from urllib.robotparser import RobotFileParser
 
 import requests
@@ -61,6 +61,28 @@ def slugify(name: str) -> str:
     name = re.sub(r"\s+", "-", name)
     name = re.sub(r"[^\w\-]", "", name, flags=re.UNICODE)
     name = re.sub(r"-{2,}", "-", name).strip("-")
+    return name
+
+
+def is_url(text: str) -> bool:
+    """True if ``text`` looks like an http(s) URL rather than a bare name."""
+    try:
+        parsed = urlparse(text.strip())
+    except (ValueError, AttributeError):
+        return False
+    return parsed.scheme in ("http", "https") and bool(parsed.netloc)
+
+
+def person_label(name: str) -> str:
+    """A tidy label for output folders, handling pasted listing URLs.
+
+    For a URL we use its final (decoded) path segment — e.g. a category URL
+    ``…/category/miura-sakura-水卜さくら/`` becomes ``miura-sakura-水卜さくら``.
+    """
+    if is_url(name):
+        path = urlparse(name.strip()).path.rstrip("/")
+        segment = unquote(path.rsplit("/", 1)[-1]) if path else ""
+        return segment or urlparse(name.strip()).netloc
     return name
 
 
@@ -160,13 +182,19 @@ class Scraper:
         return galleries
 
     def find_gallery_urls(self, name: str) -> list[str]:
-        """Collect post URLs for a name via tag pages, then search."""
-        slug = slugify(name)
+        """Collect gallery/post URLs for a name — or a pasted listing URL.
+
+        If ``name`` is itself a URL (e.g. a ``/category/…/`` or ``/tag/…/``
+        page) it is scraped directly. Otherwise we try, in order: category/tag
+        links discovered from the site search, then ``/category/<slug>/`` and
+        ``/tag/<slug>/`` guesses, and finally the raw search results — stopping
+        as soon as an authoritative listing yields galleries.
+        """
         seen: set[str] = set()
         ordered: list[str] = []
 
-        for listing_url in self._listing_urls(name, slug):
-            found_on_page = 0
+        for listing_url, authoritative in self._listing_urls(name):
+            found_here = 0
             for page_url in self._paginate(listing_url):
                 resp = self.get(page_url)
                 if resp is None:
@@ -176,7 +204,7 @@ class Scraper:
                 for u in new:
                     seen.add(u)
                     ordered.append(u)
-                found_on_page += len(new)
+                found_here += len(new)
                 logger.info(
                     "listing %s → %d new gallery link(s) (%d total)",
                     page_url, len(new), len(ordered),
@@ -188,19 +216,87 @@ class Scraper:
                 if (self.config.max_galleries is not None
                         and len(ordered) >= self.config.max_galleries):
                     return ordered[: self.config.max_galleries]
-            # If the tag route produced results, don't bother with search.
-            if found_on_page and listing_url.endswith("/"):
+            # A category/tag/explicit-URL listing names exactly one person, so
+            # once it produced galleries we don't dilute with fuzzy search.
+            if found_here and authoritative:
                 break
         return ordered
 
-    def _listing_urls(self, name: str, slug: str) -> list[str]:
+    def _listing_urls(self, name: str) -> list[tuple[str, bool]]:
+        """Ordered ``(url, authoritative)`` listing candidates for ``name``.
+
+        ``authoritative`` marks category/tag/explicit-URL pages that list a
+        single person's galleries; the first such page that works ends the hunt.
+        """
+        # 1) A pasted URL is scraped directly — nothing else to try.
+        if is_url(name):
+            return [(name.strip(), True)]
+
         base = self.config.base_url.rstrip("/")
-        urls = []
+        candidates: list[tuple[str, bool]] = []
+
+        # 2) Real category/tag URLs discovered from the search page. Slugs here
+        #    look like "miura-sakura-水卜さくら", which a typed name cannot
+        #    reproduce, so we let the site hand us the exact URL.
+        for url in self._discover_taxonomy_urls(name):
+            candidates.append((url, True))
+
+        # 3) Direct guesses, in case the slug is simple.
+        slug = slugify(name)
         if slug:
-            # WordPress encodes non-ASCII slugs in the path.
-            urls.append(f"{base}/tag/{quote_plus(slug)}/")
-        urls.append(f"{base}/?s={quote_plus(name)}")
-        return urls
+            enc = quote(slug, safe="-")  # keep hyphens; %-encode non-ASCII
+            candidates.append((f"{base}/category/{enc}/", True))
+            candidates.append((f"{base}/tag/{enc}/", True))
+
+        # 4) Raw search results as a fuzzy last resort.
+        candidates.append((f"{base}/?s={quote_plus(name)}", False))
+
+        # De-duplicate, keeping order and the first "authoritative" flag seen.
+        seen: set[str] = set()
+        result: list[tuple[str, bool]] = []
+        for url, auth in candidates:
+            if url not in seen:
+                seen.add(url)
+                result.append((url, auth))
+        return result
+
+    def _discover_taxonomy_urls(self, name: str) -> list[str]:
+        """Find category/tag pages for ``name`` from the site's search results.
+
+        Returns listing URLs whose decoded slug contains *every* token of the
+        name, so "miura sakura" resolves to "/category/miura-sakura-水卜さくら/".
+        """
+        base = self.config.base_url.rstrip("/")
+        resp = self.get(f"{base}/?s={quote_plus(name)}")
+        if resp is None:
+            return []
+        tokens = [t for t in slugify(name).split("-") if t]
+        if not tokens:
+            return []
+
+        soup = BeautifulSoup(resp.text, "html.parser")
+        base_host = self._host(urlparse(self.config.base_url).netloc)
+        found: list[str] = []
+        seen: set[str] = set()
+        for a in soup.find_all("a", href=True):
+            href = urljoin(base, a["href"])
+            parsed = urlparse(href)
+            if parsed.netloc and self._host(parsed.netloc) != base_host:
+                continue
+            low = href.lower()
+            if "/category/" not in low and "/tag/" not in low:
+                continue
+            decoded = unquote(low)
+            normalised = href.rstrip("/") + "/"
+            if all(tok in decoded for tok in tokens) and normalised not in seen:
+                seen.add(normalised)
+                found.append(normalised)
+        if found:
+            logger.info(
+                "discovered %d matching category/tag page(s) for %r",
+                len(found), name,
+            )
+        return found
 
     def _paginate(self, listing_url: str) -> Iterator[str]:
         """Yield successive pages of a listing URL (WordPress /page/N/ style)."""
