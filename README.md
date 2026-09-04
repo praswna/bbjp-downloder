@@ -15,8 +15,10 @@ interface** and a small **desktop GUI**.
 
 - **Name → galleries → images.** Give it a name; it finds every matching
   gallery and downloads all the images in each.
-- **Two discovery routes.** Tries the site's tag page (`/tag/<name>/`) first,
-  then falls back to the built-in search (`/?s=<name>`), following pagination.
+- **Visual GUI.** Search shows each gallery as a card with a thumbnail, image
+  count, and its own Download button (plus Download-all and Stop).
+- **Smart discovery.** Finds the person's `category`/`tag` page automatically
+  (even romaji+Japanese slugs), or scrape a pasted URL directly.
 - **Full-resolution images.** Automatically upgrades WordPress' resized
   thumbnails (`photo-1024x768.jpg`, `photo-scaled.jpg`) to the original file.
 - **Polite by default.** Global request throttling, retries with exponential
@@ -42,9 +44,10 @@ pip install -r requirements.txt
 pip install -e .
 ```
 
-Dependencies: [`requests`](https://pypi.org/project/requests/) and
-[`beautifulsoup4`](https://pypi.org/project/beautifulsoup4/). The GUI uses
-Tkinter, which ships with most CPython installs.
+Dependencies: [`requests`](https://pypi.org/project/requests/),
+[`beautifulsoup4`](https://pypi.org/project/beautifulsoup4/) and
+[`pillow`](https://pypi.org/project/pillow/) (for GUI thumbnails; optional). The
+GUI uses Tkinter, which ships with most CPython installs.
 
 ## Windows: just double-click
 
@@ -128,11 +131,16 @@ Common options:
 python -m bbjp_downloader --gui
 ```
 
-Enter a name, pick a destination folder, adjust workers/delay if you like, and
-press **Download**. Progress streams into the log panel; the window stays
-responsive because the work runs on a background thread. Press **Stop** at any
-time to cancel — it finishes the file in flight and stops; everything already
-downloaded is kept, and running again resumes (existing files are skipped).
+Enter a name (or paste a URL) and press **Search**. Each matching gallery
+appears as a card with a **thumbnail**, its title, image count, and its own
+**Download** button — so you can grab just the sets you want, or press
+**Download all** in the toolbar. **Stop** cancels the current operation; files
+already downloaded are kept, and running again resumes (existing files are
+skipped). The window stays responsive because all network work runs on
+background threads.
+
+Thumbnails use [Pillow](https://pypi.org/project/pillow/). If it isn't
+installed the cards simply show a placeholder and everything else still works.
 
 On the command line, press **Ctrl+C** for the same graceful stop (a second
 Ctrl+C forces an immediate quit).

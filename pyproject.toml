@@ -12,6 +12,7 @@ license = { text = "MIT" }
 dependencies = [
     "requests>=2.25",
     "beautifulsoup4>=4.9",
+    "pillow>=9.0",
 ]
 
 [project.optional-dependencies]
