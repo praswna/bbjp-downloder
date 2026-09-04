@@ -67,14 +67,19 @@ class DownloadStats:
 class Downloader:
     """Downloads galleries to disk with throttling and resume support."""
 
-    def __init__(self, config: Config, session: requests.Session | None = None):
+    def __init__(self, config: Config, session: requests.Session | None = None,
+                 cancel_event: threading.Event | None = None):
         self.config = config
         self.session = session or requests.Session()
         self.session.headers.setdefault("User-Agent", config.user_agent)
+        self.cancel_event = cancel_event
         self._rate_lock = threading.Lock()
         self._last_request = 0.0
 
     # ---- throttled fetch --------------------------------------------------
+
+    def _cancelled(self) -> bool:
+        return self.cancel_event is not None and self.cancel_event.is_set()
 
     def _throttle(self) -> None:
         # Serialise the *inter-request gap* across worker threads so overall
@@ -89,6 +94,8 @@ class Downloader:
     def _fetch(self, url: str) -> requests.Response | None:
         last_exc: Exception | None = None
         for attempt in range(1, self.config.retries + 1):
+            if self._cancelled():
+                return None
             self._throttle()
             try:
                 resp = self.session.get(
@@ -133,6 +140,8 @@ class Downloader:
 
         def task(index_url):
             index, url = index_url
+            if self._cancelled():           # already-queued work bails out fast
+                return "cancelled", 0
             base = f"{index + 1:0{pad}d}"
             return self._download_one(url, dest, base)
 
@@ -148,6 +157,8 @@ class Downloader:
                     stats.bytes_written += nbytes
                 elif result == "skipped":
                     stats.skipped += 1
+                elif result == "cancelled":
+                    pass                    # not counted; work was aborted
                 else:
                     stats.failed += 1
                     stats.failures.append(futures[future])
@@ -163,6 +174,9 @@ class Downloader:
         root.mkdir(parents=True, exist_ok=True)
         total = DownloadStats()
         for i, gallery in enumerate(galleries, 1):
+            if self._cancelled():
+                logger.info("cancelled — stopping downloads")
+                break
             logger.info(
                 "[%d/%d] %s (%d images)",
                 i, len(galleries), gallery.title or gallery.slug,

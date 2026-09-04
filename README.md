@@ -130,7 +130,12 @@ python -m bbjp_downloader --gui
 
 Enter a name, pick a destination folder, adjust workers/delay if you like, and
 press **Download**. Progress streams into the log panel; the window stays
-responsive because the work runs on a background thread.
+responsive because the work runs on a background thread. Press **Stop** at any
+time to cancel — it finishes the file in flight and stops; everything already
+downloaded is kept, and running again resumes (existing files are skipped).
+
+On the command line, press **Ctrl+C** for the same graceful stop (a second
+Ctrl+C forces an immediate quit).
 
 ### As a library
 

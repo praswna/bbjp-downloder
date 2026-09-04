@@ -394,3 +394,55 @@ def test_listing_urls_include_uppercase_tag(monkeypatch):
     plain = [u for u, _ in scraper._listing_urls("Shinozaki Ai")]
     # The proven pattern is the uppercased tag slug.
     assert "https://www.bigboobsjapan.com/tag/SHINOZAKI-AI/" in plain
+
+
+# --------------------------------------------------------------------------
+# cancellation (Stop button)
+# --------------------------------------------------------------------------
+
+def test_scraper_get_returns_none_when_cancelled():
+    import threading
+    event = threading.Event()
+    event.set()
+    scraper = Scraper(Config(obey_robots=False), cancel_event=event)
+    # No HTTP is attempted once cancelled.
+    assert scraper.get("https://www.bigboobsjapan.com/tag/x/") is None
+
+
+def test_downloader_skips_all_when_cancelled(tmp_path, monkeypatch):
+    import threading
+    event = threading.Event()
+    event.set()
+    config = Config(output_dir=tmp_path, request_delay=0)
+    downloader = Downloader(config, cancel_event=event)
+
+    called = {"n": 0}
+
+    def fake_fetch(url):
+        called["n"] += 1
+        return FakeResponse(content=b"x", headers={"Content-Type": "image/jpeg"})
+
+    monkeypatch.setattr(downloader, "_fetch", fake_fetch)
+    gallery = Gallery(url="https://x/s/", title="S",
+                      images=["https://x/a.jpg", "https://x/b.jpg"])
+    stats = downloader.download_gallery(gallery, tmp_path)
+    # Nothing fetched or counted; work aborted immediately.
+    assert called["n"] == 0
+    assert (stats.downloaded, stats.skipped, stats.failed) == (0, 0, 0)
+
+
+def test_run_cancelled_before_download_returns_empty(monkeypatch):
+    import threading
+    from bbjp_downloader import run
+    event = threading.Event()
+    event.set()
+
+    # find_galleries returns some galleries, but the run must stop before
+    # downloading because the event is already set.
+    monkeypatch.setattr(
+        "bbjp_downloader.Scraper.find_galleries",
+        lambda self, name: [Gallery(url="https://x/s/", title="S",
+                                    images=["https://x/a.jpg"])],
+    )
+    stats = run("whoever", Config(obey_robots=False), cancel_event=event)
+    assert (stats.downloaded, stats.failed) == (0, 0)

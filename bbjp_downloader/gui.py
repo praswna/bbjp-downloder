@@ -104,7 +104,7 @@ def launch(config: Config | None = None) -> int:
     ttk.Label(main, textvariable=status_var).grid(
         row=4, column=0, columnspan=2, sticky="w")
 
-    worker: dict[str, threading.Thread | None] = {"t": None}
+    worker: dict = {"t": None, "cancel": None}
 
     def append(line: str) -> None:
         log["state"] = "normal"
@@ -150,30 +150,48 @@ def launch(config: Config | None = None) -> int:
         pkg_logger.setLevel(logging.INFO)
         pkg_logger.addHandler(handler)
 
+        cancel_event = threading.Event()
+        worker["cancel"] = cancel_event
+
         start_btn["state"] = "disabled"
+        stop_btn["state"] = "normal"
         status_var.set(f"Working on “{name}” …")
 
         def job() -> None:
             try:
-                stats = run(name, run_config)
+                stats = run(name, run_config, cancel_event=cancel_event)
+                verb = "Stopped" if cancel_event.is_set() else "Done"
                 log_queue.put(
-                    f"\nDone: {stats.downloaded} downloaded, "
+                    f"\n{verb}: {stats.downloaded} downloaded, "
                     f"{stats.skipped} skipped, {stats.failed} failed "
                     f"({stats.bytes_written / 1_048_576:.1f} MB)."
                 )
-                root.after(0, lambda: status_var.set("Done."))
+                root.after(0, lambda: status_var.set(verb + "."))
             except Exception as exc:  # surface any crash in the UI
                 log_queue.put(f"\nError: {exc}")
                 root.after(0, lambda: status_var.set("Error — see log."))
             finally:
                 pkg_logger.removeHandler(handler)
                 root.after(0, lambda: start_btn.configure(state="normal"))
+                root.after(0, lambda: stop_btn.configure(state="disabled"))
 
         worker["t"] = threading.Thread(target=job, daemon=True)
         worker["t"].start()
 
-    start_btn = ttk.Button(main, text="Download", command=start)
-    start_btn.grid(row=4, column=2, sticky="e")
+    def stop() -> None:
+        event = worker.get("cancel")
+        if event is not None and not event.is_set():
+            event.set()
+            status_var.set("Stopping — finishing current file …")
+            log_queue.put("\nStop requested — files already saved are kept.")
+        stop_btn["state"] = "disabled"
+
+    buttons = ttk.Frame(main)
+    buttons.grid(row=4, column=2, sticky="e")
+    stop_btn = ttk.Button(buttons, text="Stop", command=stop, state="disabled")
+    stop_btn.pack(side="right")
+    start_btn = ttk.Button(buttons, text="Download", command=start)
+    start_btn.pack(side="right", padx=(0, 6))
     name_entry.bind("<Return>", lambda _e: start())
 
     append(

@@ -101,9 +101,33 @@ def main(argv: list[str] | None = None) -> int:
             print(f"    {g.url}")
         return 0
 
-    stats = run(args.name, config)
+    # Ctrl+C stops gracefully (keeping downloaded files); a second Ctrl+C
+    # forces an immediate quit.
+    import signal
+    import threading
+
+    cancel_event = threading.Event()
+
+    def _on_sigint(_signum, _frame):
+        if not cancel_event.is_set():
+            print("\nStopping… (Ctrl+C again to force quit)", file=sys.stderr)
+            cancel_event.set()
+        else:
+            raise KeyboardInterrupt
+
+    try:
+        previous = signal.signal(signal.SIGINT, _on_sigint)
+    except ValueError:            # not on the main thread
+        previous = None
+    try:
+        stats = run(args.name, config, cancel_event=cancel_event)
+    finally:
+        if previous is not None:
+            signal.signal(signal.SIGINT, previous)
+
+    verb = "Stopped" if cancel_event.is_set() else "Done"
     print(
-        f"\nDone: {stats.downloaded} downloaded, {stats.skipped} skipped, "
+        f"\n{verb}: {stats.downloaded} downloaded, {stats.skipped} skipped, "
         f"{stats.failed} failed ({stats.bytes_written / 1_048_576:.1f} MB)."
     )
     if stats.failed and stats.downloaded == 0:

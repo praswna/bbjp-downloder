@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
 import time
 from dataclasses import dataclass
 from typing import Iterable, Iterator
@@ -89,14 +90,19 @@ def person_label(name: str) -> str:
 class Scraper:
     """Discovers galleries and image URLs for a given person."""
 
-    def __init__(self, config: Config, session: requests.Session | None = None):
+    def __init__(self, config: Config, session: requests.Session | None = None,
+                 cancel_event: "threading.Event | None" = None):
         self.config = config
         self.session = session or requests.Session()
         self.session.headers.setdefault("User-Agent", config.user_agent)
+        self.cancel_event = cancel_event
         self._robots: RobotFileParser | None = None
         self._last_request = 0.0
 
     # ---- HTTP helpers -----------------------------------------------------
+
+    def _cancelled(self) -> bool:
+        return self.cancel_event is not None and self.cancel_event.is_set()
 
     def _throttle(self) -> None:
         elapsed = time.monotonic() - self._last_request
@@ -107,6 +113,8 @@ class Scraper:
 
     def get(self, url: str) -> requests.Response | None:
         """GET a URL with throttling, retries and robots.txt awareness."""
+        if self._cancelled():
+            return None
         if not self._allowed_by_robots(url):
             logger.warning("robots.txt disallows %s — skipping", url)
             return None
@@ -167,6 +175,9 @@ class Scraper:
         post_urls = self.find_gallery_urls(name)
         galleries: list[Gallery] = []
         for url in post_urls:
+            if self._cancelled():
+                logger.info("cancelled — stopping gallery scan")
+                break
             gallery = self.extract_images(url)
             if gallery and gallery.images:
                 galleries.append(gallery)
@@ -194,6 +205,8 @@ class Scraper:
         ordered: list[str] = []
 
         for listing_url, authoritative in self._listing_urls(name):
+            if self._cancelled():
+                break
             found_here = 0
             for page_url in self._paginate(listing_url):
                 resp = self.get(page_url)

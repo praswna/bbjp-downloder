@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 
 def run(name: str, config: Config | None = None,
-        progress=None) -> DownloadStats:
+        progress=None, cancel_event=None) -> DownloadStats:
     """Find and download every gallery for ``name``.
 
     Parameters
@@ -43,26 +43,39 @@ def run(name: str, config: Config | None = None,
     progress:
         Optional callable ``progress(event: str, **data)`` for UI hooks. Events:
         ``"search"``, ``"galleries"``, ``"gallery"``, ``"done"``.
+    cancel_event:
+        Optional :class:`threading.Event`; set it from another thread to stop
+        the run at the next checkpoint. Files already written are kept.
     """
     config = config or Config()
     session = _build_session(config)
-    scraper = Scraper(config, session=session)
+    scraper = Scraper(config, session=session, cancel_event=cancel_event)
 
     _emit(progress, "search", name=name)
     logger.info("Searching galleries for %r …", name)
     galleries = scraper.find_galleries(name)
     _emit(progress, "galleries", count=len(galleries), galleries=galleries)
 
+    def _cancelled() -> bool:
+        return cancel_event is not None and cancel_event.is_set()
+
+    if _cancelled():
+        logger.info("Stopped before downloading.")
+        return DownloadStats()
+
     if not galleries:
         logger.warning("No galleries with images found for %r.", name)
         return DownloadStats()
 
     logger.info("Found %d gallery(ies); downloading …", len(galleries))
-    downloader = Downloader(config, session=session)
+    downloader = Downloader(config, session=session, cancel_event=cancel_event)
     stats = DownloadStats()
     root = config.output_dir / _safe(name)
     root.mkdir(parents=True, exist_ok=True)
     for i, gallery in enumerate(galleries, 1):
+        if _cancelled():
+            logger.info("Stopped after %d gallery(ies).", i - 1)
+            break
         _emit(progress, "gallery", index=i, total=len(galleries), gallery=gallery)
         stats.merge(downloader.download_gallery(gallery, root))
 
