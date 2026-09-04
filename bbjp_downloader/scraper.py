@@ -113,6 +113,7 @@ class Scraper:
         self.cancel_event = cancel_event
         self._robots: RobotFileParser | None = None
         self._last_request = 0.0
+        self._home_posts: set[str] | None = None  # homepage latest-post links
 
     # ---- HTTP helpers -----------------------------------------------------
 
@@ -229,15 +230,26 @@ class Scraper:
         seen: set[str] = set()
         ordered: list[str] = []
 
-        for listing_url, authoritative in self._listing_urls(name):
+        for listing_url, authoritative, is_guess in self._listing_urls(name):
             if self._cancelled():
                 break
             found_here = 0
-            for page_url in self._paginate(listing_url):
+            for page_index, page_url in enumerate(self._paginate(listing_url)):
                 resp = self.get(page_url)
                 if resp is None:
                     break
                 links = self._extract_post_links(resp.text, page_url)
+                # A non-existent tag/category doesn't 404 on this site — it
+                # shows the homepage's latest posts. Detect that on the first
+                # page of a *guessed* URL and discard it, so a typo'd name
+                # returns nothing instead of unrelated galleries.
+                if (is_guess and page_index == 0 and links
+                        and self._is_homepage_fallback(links)):
+                    logger.info(
+                        "%s has no real archive (homepage fallback) — skipping",
+                        listing_url,
+                    )
+                    break
                 new = [u for u in links if u not in seen]
                 for u in new:
                     seen.add(u)
@@ -260,48 +272,72 @@ class Scraper:
                 break
         return ordered
 
-    def _listing_urls(self, name: str) -> list[tuple[str, bool]]:
-        """Ordered ``(url, authoritative)`` listing candidates for ``name``.
+    def _listing_urls(self, name: str) -> list[tuple[str, bool, bool]]:
+        """Ordered ``(url, authoritative, is_guess)`` listing candidates.
 
         ``authoritative`` marks category/tag/explicit-URL pages that list a
         single person's galleries; the first such page that works ends the hunt.
+        ``is_guess`` marks constructed tag/category URLs that may not exist —
+        those get a homepage-fallback check before their results are trusted.
         """
         # 1) A pasted URL is scraped directly — nothing else to try.
         if is_url(name):
-            return [(name.strip(), True)]
+            return [(name.strip(), True, False)]
 
         base = self.config.base_url.rstrip("/")
-        candidates: list[tuple[str, bool]] = []
+        candidates: list[tuple[str, bool, bool]] = []
 
         # 2) Real category/tag URLs discovered from the search page. Slugs here
         #    look like "miura-sakura-水卜さくら", which a typed name cannot
-        #    reproduce, so we let the site hand us the exact URL.
+        #    reproduce, so we let the site hand us the exact URL. These are real
+        #    links from the site, so they need no fallback check.
         for url in self._discover_taxonomy_urls(name):
-            candidates.append((url, True))
+            candidates.append((url, True, False))
 
         # 3) Direct guesses. The uppercase tag (e.g. /tag/SHINOZAKI-AI/) is the
         #    form this site actually uses for romaji names, so it comes first;
-        #    lowercase category/tag variants cover other cases.
+        #    lowercase category/tag variants cover other cases. Marked as
+        #    guesses because a non-existent one silently shows recent posts.
         upper = quote(name.strip().upper().replace(" ", "-"), safe="-")
         if upper:
-            candidates.append((f"{base}/tag/{upper}/", True))
+            candidates.append((f"{base}/tag/{upper}/", True, True))
         slug = slugify(name)
         if slug:
             enc = quote(slug, safe="-")  # keep hyphens; %-encode non-ASCII
-            candidates.append((f"{base}/category/{enc}/", True))
-            candidates.append((f"{base}/tag/{enc}/", True))
+            candidates.append((f"{base}/category/{enc}/", True, True))
+            candidates.append((f"{base}/tag/{enc}/", True, True))
 
         # 4) Raw search results as a fuzzy last resort.
-        candidates.append((f"{base}/?s={quote_plus(name)}", False))
+        candidates.append((f"{base}/?s={quote_plus(name)}", False, False))
 
-        # De-duplicate, keeping order and the first "authoritative" flag seen.
+        # De-duplicate, keeping order and the first flags seen.
         seen: set[str] = set()
-        result: list[tuple[str, bool]] = []
-        for url, auth in candidates:
+        result: list[tuple[str, bool, bool]] = []
+        for url, auth, guess in candidates:
             if url not in seen:
                 seen.add(url)
-                result.append((url, auth))
+                result.append((url, auth, guess))
         return result
+
+    def _homepage_posts(self) -> set[str]:
+        """Post links on the site homepage, cached — the set a non-existent
+        tag/category page falls back to showing."""
+        if self._home_posts is None:
+            resp = self.get(self.config.base_url)
+            self._home_posts = (
+                set(self._extract_post_links(resp.text, self.config.base_url))
+                if resp is not None else set()
+            )
+        return self._home_posts
+
+    def _is_homepage_fallback(self, links: list[str]) -> bool:
+        """True if ``links`` are essentially the homepage's latest posts, i.e.
+        the page is a non-existent archive showing recent posts."""
+        home = self._homepage_posts()
+        if not home or not links:
+            return False
+        overlap = sum(1 for u in links if u in home)
+        return overlap >= max(2, int(len(links) * 0.6))
 
     def _discover_taxonomy_urls(self, name: str) -> list[str]:
         """Find category/tag pages for ``name`` from the site's search results.

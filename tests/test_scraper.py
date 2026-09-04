@@ -89,18 +89,21 @@ def test_person_label_plain_name():
 
 def test_listing_urls_passthrough_for_url():
     scraper = Scraper(Config())
-    assert scraper._listing_urls(MIURA_URL) == [(MIURA_URL, True)]
+    assert scraper._listing_urls(MIURA_URL) == [(MIURA_URL, True, False)]
 
 
 def test_listing_urls_tries_category_tag_then_search(monkeypatch):
     scraper = Scraper(Config())
     monkeypatch.setattr(scraper, "_discover_taxonomy_urls", lambda name: [])
     urls = scraper._listing_urls("Miura Sakura")
-    plain = [u for u, _ in urls]
+    plain = [u for u, _a, _g in urls]
     assert "https://www.bigboobsjapan.com/category/miura-sakura/" in plain
     assert "https://www.bigboobsjapan.com/tag/miura-sakura/" in plain
     # Search is present and flagged non-authoritative.
-    assert any(u.endswith("/?s=Miura+Sakura") and not auth for u, auth in urls)
+    assert any(u.endswith("/?s=Miura+Sakura") and not auth
+               for u, auth, _g in urls)
+    # The constructed tag/category guesses are flagged for a fallback check.
+    assert all(guess for u, _a, guess in urls if "/tag/" in u or "/category/" in u)
     # Category is tried before the tag guess.
     assert plain.index("https://www.bigboobsjapan.com/category/miura-sakura/") \
         < plain.index("https://www.bigboobsjapan.com/tag/miura-sakura/")
@@ -391,7 +394,7 @@ def test_listing_uses_featured_img_link():
 def test_listing_urls_include_uppercase_tag(monkeypatch):
     scraper = Scraper(Config())
     monkeypatch.setattr(scraper, "_discover_taxonomy_urls", lambda name: [])
-    plain = [u for u, _ in scraper._listing_urls("Shinozaki Ai")]
+    plain = [u for u, _a, _g in scraper._listing_urls("Shinozaki Ai")]
     # The proven pattern is the uppercased tag slug.
     assert "https://www.bigboobsjapan.com/tag/SHINOZAKI-AI/" in plain
 
@@ -493,3 +496,53 @@ def test_scraper_get_backs_off_on_429(monkeypatch):
     resp = scraper.get("https://www.bigboobsjapan.com/tag/x/")
     assert resp is not None and resp.status_code == 200
     assert calls["n"] == 2  # retried once after the 429
+
+
+# --------------------------------------------------------------------------
+# non-existent tag returns the homepage's latest posts, not a 404
+# --------------------------------------------------------------------------
+
+def _featured(hrefs):
+    items = "".join(
+        f'<article><div class="entry-featured-img-wrap">'
+        f'<a class="entry-featured-img-link" href="{h}"></a></div></article>'
+        for h in hrefs
+    )
+    return f"<html><body><div id='content'>{items}</div></body></html>"
+
+
+def test_nonexistent_tag_homepage_fallback_is_rejected(monkeypatch):
+    scraper = Scraper(Config(obey_robots=False))
+    home = [f"https://www.bigboobsjapan.com/2024/0{i}/01/set-{i}/" for i in range(1, 6)]
+
+    def fake_get(url):
+        if "/tag/" in url or "/category/" in url:
+            if "/page/" in url:                 # no second page
+                return FakeResponse(text=_featured([]))
+            return FakeResponse(text=_featured(home))   # fallback = homepage
+        if "?s=" in url:
+            return FakeResponse(text="<html></html>")   # search finds nothing
+        return FakeResponse(text=_featured(home))        # the homepage itself
+
+    monkeypatch.setattr(scraper, "get", fake_get)
+    # A typo'd name whose tag/category doesn't exist must yield nothing, not
+    # the site's unrelated recent posts.
+    assert scraper.find_gallery_urls("Miura Skura") == []
+
+
+def test_real_tag_not_mistaken_for_fallback(monkeypatch):
+    scraper = Scraper(Config(obey_robots=False))
+    home = [f"https://www.bigboobsjapan.com/2024/0{i}/01/latest-{i}/" for i in range(1, 6)]
+    real = [f"https://www.bigboobsjapan.com/2020/0{i}/01/miura-{i}/" for i in range(1, 4)]
+
+    def fake_get(url):
+        if "/tag/" in url and "/page/" not in url:
+            return FakeResponse(text=_featured(real))   # genuine archive
+        if "/tag/" in url and "/page/" in url:
+            return FakeResponse(text=_featured([]))
+        if "?s=" in url:
+            return FakeResponse(text="<html></html>")
+        return FakeResponse(text=_featured(home))        # homepage differs
+    monkeypatch.setattr(scraper, "get", fake_get)
+    found = scraper.find_gallery_urls("Whoever")
+    assert found == real
