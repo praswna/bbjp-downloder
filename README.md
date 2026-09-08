@@ -48,10 +48,14 @@ pip install -e .
 
 Dependencies: [`requests`](https://pypi.org/project/requests/),
 [`beautifulsoup4`](https://pypi.org/project/beautifulsoup4/),
-[`pillow`](https://pypi.org/project/pillow/) (thumbnails) and
-[`PySide6`](https://pypi.org/project/PySide6/) (the Qt GUI). If PySide6 isn't
-installed the app falls back to a built-in Tkinter GUI, so the CLI works with
-just `requests` + `beautifulsoup4`.
+[`pillow`](https://pypi.org/project/pillow/) (thumbnails),
+[`PySide6`](https://pypi.org/project/PySide6/) (the Qt GUI) and
+[`selenium`](https://pypi.org/project/selenium/) (browser mode — see below). If
+PySide6 isn't installed the app falls back to a built-in Tkinter GUI; if
+selenium isn't installed the tool still works over plain HTTP. So the CLI's
+bare minimum is just `requests` + `beautifulsoup4`. Browser mode also needs
+[Google Chrome](https://www.google.com/chrome/) installed (Selenium drives it;
+no separate chromedriver download needed).
 
 ## Windows: just double-click
 
@@ -124,6 +128,8 @@ Common options:
 | `--overwrite` | Re-download existing files | off |
 | `--no-full-size` | Keep resized images, don't fetch originals | off |
 | `--obey-robots` | Honour `robots.txt` (off by default — see below) | off |
+| `--browser` | Read pages via a real Chrome (Selenium) — bypasses blocks | off |
+| `--headless` | Hide the Chrome window (with `--browser`) | off |
 | `--base-url URL` | Point at a different site | `bigboobsjapan.com` |
 | `--list` | List galleries only, don't download | — |
 | `--gui` | Launch the graphical interface | — |
@@ -199,6 +205,38 @@ Practical tips:
 
 None of this is a guarantee — but at ~1 request/second it behaves like a slow
 human browser, which is about as safe as scraping gets.
+
+## Bypassing site blocks (browser mode)
+
+Plain HTTP requests can get silently blocked by anti-bot / JavaScript
+challenges — pages load empty, or don't load at all, even though the same URL
+works fine in your actual browser. If that happens, turn on **browser mode**:
+the tool drives a real Chrome window (via [Selenium](https://www.selenium.dev/))
+to load every page, so it looks like an ordinary visitor instead of a script.
+Downloads then reuse that Chrome session's cookies, so hot-link / referer
+checks pass too.
+
+- **GUI**: it's on by default (⚙ **Settings** → *Browser mode*). Turn it off
+  there if you'd rather use plain HTTP, or enable *headless* to hide the
+  Chrome window once you've confirmed it works.
+- **CLI**: pass `--browser` (add `--headless` to hide the window):
+
+  ```bash
+  python -m bbjp_downloader "Some Name" --browser
+  ```
+
+Requires `pip install selenium` and Google Chrome installed — Selenium 4
+downloads a matching driver automatically. If selenium isn't installed, the
+GUI's browser-mode checkbox is disabled and the CLI flag is simply ignored
+(falls back to plain HTTP, same as before).
+
+Under the hood this swaps out *only* the network transport
+(`BrowserScraper` in `browser.py` overrides `Scraper.get()` to return a
+Chrome-rendered page instead of an HTTP response) — every other piece of
+proven logic (tag/category discovery, homepage-fallback detection,
+pagination, gallery/srcset extraction) runs completely unchanged. Browser
+mode is slower per page (Chrome has to actually load and render), so it's
+worth trying plain HTTP first and only switching on when you hit a block.
 
 ## How it works
 

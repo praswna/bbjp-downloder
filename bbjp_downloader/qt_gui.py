@@ -114,6 +114,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self._delay = config.request_delay
         self._fullsize = config.full_size
         self._outdir = str(Path(config.output_dir).resolve())
+        self._use_browser = True          # browser (Selenium) engine on by default
+        self._headless = config.browser_headless
+        self._browser = None              # persistent BrowserScraper
 
         self.cancel_event: threading.Event | None = None
         self.enrich_cancel = threading.Event()
@@ -320,6 +323,22 @@ class MainWindow(QtWidgets.QMainWindow):
         full.setChecked(self._fullsize)
         form.addRow("", full)
 
+        from .browser import selenium_available
+        sel_ok = selenium_available()
+        browser_chk = QtWidgets.QCheckBox(
+            "Browser mode (Chrome via Selenium) — bypasses site blocks")
+        browser_chk.setChecked(self._use_browser and sel_ok)
+        browser_chk.setEnabled(sel_ok)
+        if not sel_ok:
+            browser_chk.setText(browser_chk.text()
+                                + "  [needs: pip install selenium]")
+        form.addRow("", browser_chk)
+
+        headless_chk = QtWidgets.QCheckBox("Run browser headless (hidden window)")
+        headless_chk.setChecked(self._headless)
+        headless_chk.setEnabled(sel_ok)
+        form.addRow("", headless_chk)
+
         buttons = QtWidgets.QDialogButtonBox(
             QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel)
         buttons.button(QtWidgets.QDialogButtonBox.Ok).setObjectName("accent")
@@ -333,6 +352,12 @@ class MainWindow(QtWidgets.QMainWindow):
             self._workers = workers.value()
             self._delay = delay.value()
             self._fullsize = full.isChecked()
+            new_use_browser = browser_chk.isChecked()
+            new_headless = headless_chk.isChecked()
+            if new_use_browser != self._use_browser or new_headless != self._headless:
+                self._close_browser()  # settings changed — start fresh next run
+            self._use_browser = new_use_browser
+            self._headless = new_headless
             self.status.setText("Settings saved.")
 
     # ---- config / running state ------------------------------------------
@@ -342,7 +367,37 @@ class MainWindow(QtWidgets.QMainWindow):
             output_dir=Path(self._outdir or "downloads"),
             max_workers=int(self._workers),
             request_delay=float(self._delay),
-            full_size=bool(self._fullsize))
+            full_size=bool(self._fullsize),
+            use_browser=bool(self._use_browser),
+            browser_headless=bool(self._headless))
+
+    def _scraper(self, cfg, cancel):
+        """The scraper for this operation: a shared browser instance in browser
+        mode (falling back to HTTP if Selenium isn't installed), else HTTP."""
+        from .browser import selenium_available
+        if self._use_browser and selenium_available():
+            if self._browser is None:
+                from .browser import BrowserScraper
+                self._browser = BrowserScraper(cfg, cancel_event=cancel)
+            self._browser.cancel_event = cancel
+            return self._browser
+        return Scraper(cfg, cancel_event=cancel)
+
+    def _dl_session(self, cfg):
+        """A cookie-seeded requests session when browsing, else None (the
+        Downloader builds its own)."""
+        if self._browser is not None:
+            from .browser import download_session
+            return download_session(cfg, self._browser.cookies())
+        return None
+
+    def _close_browser(self) -> None:
+        if self._browser is not None:
+            try:
+                self._browser.close()
+            except Exception:
+                pass
+            self._browser = None
 
     def _busy(self) -> bool:
         return self.worker is not None and self.worker.is_alive()
@@ -392,8 +447,14 @@ class MainWindow(QtWidgets.QMainWindow):
                      f"Searching “{name}” …")
 
     def _do_search(self, name, cfg, cancel) -> None:
+        from .browser import selenium_available
+        if self._use_browser and not selenium_available():
+            self.sig.log.emit("Selenium not installed — using plain HTTP. "
+                              "For browser mode: pip install selenium")
+        elif self._use_browser:
+            self.sig.log.emit("Browser mode: launching Chrome to read pages…")
         self.sig.log.emit(f"Searching galleries for “{name}” …")
-        stubs = Scraper(cfg, cancel_event=cancel).find_gallery_stubs(name)
+        stubs = self._scraper(cfg, cancel).find_gallery_stubs(name)
         self.sig.stubs_ready.emit(stubs)
 
     @QtCore.Slot(object)
@@ -471,7 +532,7 @@ class MainWindow(QtWidgets.QMainWindow):
         cards = list(self.cards)
 
         def work():
-            scraper = Scraper(cfg, cancel_event=cancel)
+            scraper = self._scraper(cfg, cancel)
             for idx, card in enumerate(cards):
                 if cancel.is_set():
                     return
@@ -545,8 +606,9 @@ class MainWindow(QtWidgets.QMainWindow):
         root = cfg.output_dir / sanitize_filename(person_label(self.person),
                                                   "model")
         root.mkdir(parents=True, exist_ok=True)
-        downloader = Downloader(cfg, cancel_event=cancel)
-        scraper = Scraper(cfg, cancel_event=cancel)
+        scraper = self._scraper(cfg, cancel)
+        downloader = Downloader(cfg, session=self._dl_session(cfg),
+                                cancel_event=cancel)
         total = DownloadStats()
         cards = list(self.cards)
         for i, card in enumerate(cards):
@@ -586,7 +648,7 @@ class MainWindow(QtWidgets.QMainWindow):
         root.mkdir(parents=True, exist_ok=True)
         gallery = card["gallery"]
         if gallery is None:
-            gallery = Scraper(cfg, cancel_event=cancel).extract_images(
+            gallery = self._scraper(cfg, cancel).extract_images(
                 card["stub"].url)
             if gallery:
                 self.sig.count_ready.emit(idx, gallery)
@@ -594,7 +656,8 @@ class MainWindow(QtWidgets.QMainWindow):
             self.sig.card_status.emit(idx, "no images")
             return
         self.sig.card_status.emit(idx, "downloading…")
-        st = Downloader(cfg, cancel_event=cancel).download_gallery(gallery, root)
+        st = Downloader(cfg, session=self._dl_session(cfg),
+                        cancel_event=cancel).download_gallery(gallery, root)
         verb = "stopped" if cancel.is_set() else "saved"
         text = f"{verb} · {st.downloaded} new, {st.skipped} skipped"
         self.sig.card_status.emit(idx, text)
@@ -618,6 +681,7 @@ class MainWindow(QtWidgets.QMainWindow):
         if self.cancel_event:
             self.cancel_event.set()
         self.enrich_cancel.set()
+        self._close_browser()
         super().closeEvent(event)
 
 

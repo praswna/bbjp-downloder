@@ -14,6 +14,7 @@ dependencies = [
     "beautifulsoup4>=4.9",
     "pillow>=9.0",
     "PySide6>=6.5",
+    "selenium>=4.15",
 ]
 
 [project.optional-dependencies]

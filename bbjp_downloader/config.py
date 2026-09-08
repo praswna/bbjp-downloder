@@ -115,6 +115,13 @@ class Config:
     # downloader needs, so it is OFF by default (the tool is for personal,
     # rate-limited use). Turn it back on with obey_robots=True / --obey-robots.
     obey_robots: bool = False         # honour robots.txt (warn + skip if disallowed)
+
+    # Browser (Selenium) mode: drive a real Chrome to read pages so anti-bot /
+    # JS challenges that block plain HTTP requests are bypassed. Downloads then
+    # reuse the browser's cookies. Off by default (needs Chrome + selenium).
+    use_browser: bool = False
+    browser_headless: bool = False    # show the Chrome window (better bypass)
+    browser_settle: float = 1.5       # seconds to wait after each page load
     full_size: bool = True            # strip WordPress -WxH suffixes to fetch originals
     overwrite: bool = False           # re-download files that already exist
     max_galleries: int | None = None  # cap number of galleries (None = all)
