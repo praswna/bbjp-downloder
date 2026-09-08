@@ -36,6 +36,17 @@ _RESIZE_SUFFIX = re.compile(r"-\d{2,5}x\d{2,5}(?=\.[A-Za-z0-9]+$)")
 # Matches "...-scaled.jpg" — WP's big-image variant; the original drops it.
 _SCALED_SUFFIX = re.compile(r"-scaled(?=\.[A-Za-z0-9]+$)")
 
+# Selectors (most → least specific) for the pagination widget's numbered page
+# links, used to read a listing's true last page directly from its own markup
+# instead of guessing it via homepage-overlap detection.
+_PAGE_NUMBER_SELECTORS = (
+    "#content nav a.page-numbers",
+    "nav.pagination a.page-numbers",
+    ".pagination a.page-numbers",
+    ".nav-links a.page-numbers",
+    "a.page-numbers",
+)
+
 
 @dataclass
 class Gallery:
@@ -258,7 +269,13 @@ class Scraper:
             if self._cancelled():
                 break
             found_here = 0
+            # Once page 1's own pagination widget tells us the true last page,
+            # we stop exactly there — no heuristics needed for the boundary of
+            # a real archive, and no request is ever sent past it.
+            max_page: int | None = None
             for page_index, page_url in enumerate(self._paginate(listing_url)):
+                if max_page is not None and page_index >= max_page:
+                    break
                 resp = self.get(page_url)
                 if resp is None:
                     break
@@ -266,13 +283,16 @@ class Scraper:
                 links = [it.url for it in items]
                 # This site doesn't 404 for a missing tag/category or for a
                 # page past the last one — it shows the homepage's latest
-                # posts. Detect that and stop, discarding the page's links:
-                #   * page 1 of a *guessed* URL → the archive doesn't exist
-                #   * any later page → we've paginated past the real content
-                # The first page of a discovered/real URL is trusted (a busy
-                # model's newest posts can legitimately match the homepage).
-                if (links and (is_guess or page_index > 0)
-                        and self._is_homepage_fallback(links)):
+                # posts. We only need to guard against that with a heuristic
+                # when we don't yet have a real page count to trust:
+                #   * page 1 of a *guessed* URL → the archive may not exist
+                #   * a later page, but we couldn't read a page count above
+                #     (unrecognised pagination markup) → stay defensive
+                # Once max_page is known, every page up to it is trusted
+                # outright — a busy model's newest posts can legitimately
+                # match the homepage without that being a false archive.
+                need_guard = is_guess if page_index == 0 else max_page is None
+                if links and need_guard and self._is_homepage_fallback(links):
                     where = "no real archive" if page_index == 0 else "end of archive"
                     logger.info(
                         "%s → homepage fallback (%s) — stopping",
@@ -288,6 +308,14 @@ class Scraper:
                     "listing %s → %d new gallery link(s) (%d total)",
                     page_url, len(new), len(ordered),
                 )
+                if page_index == 0:
+                    detected = self._max_listing_page(resp.text)
+                    if detected:
+                        max_page = detected
+                        logger.info(
+                            "%s reports %d total page(s)",
+                            listing_url, max_page,
+                        )
                 # Stop when a page is empty, or yields nothing new (a
                 # last-page redirect back to page 1 repeats known links).
                 if not items or not new:
@@ -367,6 +395,28 @@ class Scraper:
             return False
         overlap = sum(1 for u in links if u in home)
         return overlap >= max(2, int(len(links) * 0.6))
+
+    @staticmethod
+    def _max_listing_page(html: str) -> int | None:
+        """Read the true last page number from a listing page's own
+        pagination widget (``a.page-numbers`` links — WordPress' default
+        markup, confirmed on this site), so a real multi-page archive is
+        never bounded by heuristics: we know exactly how many pages exist and
+        never request — let alone need to second-guess — anything past the
+        last one. Returns None when no numbered pagination link is found
+        (single-page archive, or an unrecognised markup); callers fall back
+        to homepage-overlap detection in that ambiguous case.
+        """
+        soup = BeautifulSoup(html, "html.parser")
+        for selector in _PAGE_NUMBER_SELECTORS:
+            anchors = soup.select(selector)
+            if not anchors:
+                continue
+            numbers = [int(text) for a in anchors
+                      if (text := a.get_text(strip=True)).isdigit()]
+            if numbers:
+                return max(numbers)
+        return None
 
     def _discover_taxonomy_urls(self, name: str) -> list[str]:
         """Find category/tag pages for ``name`` from the site's search results.

@@ -571,3 +571,81 @@ def test_real_tag_not_mistaken_for_fallback(monkeypatch):
     monkeypatch.setattr(scraper, "get", fake_get)
     found = scraper.find_gallery_urls("Whoever")
     assert found == real
+
+
+# --------------------------------------------------------------------------
+# trust a listing's own pagination widget over the homepage-overlap guess
+# --------------------------------------------------------------------------
+
+def _featured_with_pagination(hrefs, last_page):
+    """A listing page whose content is ``hrefs`` and whose pagination widget
+    (matching the site's real ``a.page-numbers`` markup) reports ``last_page``
+    as the true final page — regardless of what page number this is."""
+    items = "".join(
+        f'<article><div class="entry-featured-img-wrap">'
+        f'<a class="entry-featured-img-link" href="{h}"></a></div></article>'
+        for h in hrefs
+    )
+    nav = "".join(f'<a class="page-numbers" href="/page/{n}/">{n}</a>'
+                  for n in range(2, last_page + 1))
+    return (f"<html><body><div id='content'>{items}"
+            f"<nav><div>{nav}</div></nav></div></body></html>")
+
+
+def test_max_listing_page_reads_pagination_widget():
+    # Two pages: "2" then the "next" arrow (non-numeric text, ignored).
+    html_two = ("<div id='content'><nav><div>"
+               '<a class="page-numbers" href="/page/2/">2</a>'
+               '<a class="next page-numbers" href="/page/2/">次へ</a>'
+               "</div></nav></div>")
+    assert Scraper._max_listing_page(html_two) == 2
+
+    # Many pages, ellipsis-truncated — the true last page (12) is still a
+    # link per WordPress' default end_size=1 behaviour.
+    html_many = ("<div id='content'><nav><div>"
+               '<a class="page-numbers" href="/page/2/">2</a>'
+               '<a class="page-numbers" href="/page/3/">3</a>'
+               '<span class="page-numbers dots">…</span>'
+               '<a class="page-numbers" href="/page/12/">12</a>'
+               '<a class="next page-numbers" href="/page/2/">次へ</a>'
+               "</div></nav></div>")
+    assert Scraper._max_listing_page(html_many) == 12
+
+    # No pagination widget at all -> unknown (single page, most likely).
+    assert Scraper._max_listing_page("<div id='content'></div>") is None
+
+
+def test_real_multipage_archive_trusts_own_pagination_over_homepage_overlap(
+        monkeypatch):
+    """Regression test: a genuine page 2 whose posts happen to also be the
+    site's current latest posts (a busy/recently-active model) must NOT be
+    discarded as a "homepage fallback" once page 1's own pagination widget
+    says there truly are 2 pages — this is what page 1's earlier exemption
+    already protected against; the fix extends the same trust to every page
+    up to the widget's own reported count, not just page 1."""
+    scraper = Scraper(Config(obey_robots=False))
+    p1 = [f"https://www.bigboobsjapan.com/2024/09/0{i}/set-{i}/"
+         for i in range(1, 3)]
+    # Page 2's posts are — coincidentally — identical to the homepage's
+    # current latest posts (the exact scenario that used to be misdetected).
+    p2 = [f"https://www.bigboobsjapan.com/2024/09/0{i}/set-{i}/"
+         for i in range(3, 6)]
+    requested = []
+
+    def fake_get(url):
+        requested.append(url)
+        if url.rstrip("/") == scraper.config.base_url.rstrip("/"):
+            return FakeResponse(text=_featured(p2))          # "homepage"
+        if "/page/2/" in url:
+            return FakeResponse(text=_featured(p2))          # genuine page 2
+        if "/page/" in url:
+            raise AssertionError(f"must never request past the known last "
+                                 f"page: {url}")
+        return FakeResponse(text=_featured_with_pagination(p1, last_page=2))
+
+    monkeypatch.setattr(scraper, "get", fake_get)
+    found = scraper.find_gallery_urls(
+        "https://www.bigboobsjapan.com/category/whoever/")
+    assert found == p1 + p2
+    # And page 3 was never even attempted.
+    assert not any("/page/3/" in u for u in requested)
