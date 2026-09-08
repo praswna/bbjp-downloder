@@ -141,6 +141,7 @@ class Scraper:
         self._robots: RobotFileParser | None = None
         self._last_request = 0.0
         self._home_posts: set[str] | None = None  # homepage latest-post links
+        self._model_directory: list[tuple[str, str]] | None = None  # all-models list, cached
 
     # ---- HTTP helpers -----------------------------------------------------
 
@@ -432,54 +433,37 @@ class Scraper:
         return candidates if len(candidates) > 1 else []
 
     def _discover_taxonomy_candidates(self, name: str) -> list[tuple[str, str]]:
-        """Find category/tag pages for ``name`` from the site's search
-        results, paired with a human-readable label (the link's own text,
-        falling back to a cleaned-up slug).
+        """Find category/tag pages matching ``name``.
 
-        Returns ``(label, url)`` pairs whose decoded slug contains *every*
+        Prefers the site's own directory of every model
+        (``config.model_directory_path``, fetched once and cached) since it's
+        the most complete and authoritative source; falls back to the site's
+        ``?s=`` search results for anything not (yet) listed there.
+
+        Returns ``(label, url)`` pairs whose URL or link text contains every
         token of the name, so "miura sakura" resolves to a page like
-        "/category/miura-sakura-水卜さくら/". The same person's ``/category/``
-        and ``/tag/`` page (identical slug, different taxonomy) collapse into
-        one entry, preferring ``/category/`` as the canonical route.
+        "/category/miura-sakura-水卜さくら/".
         """
-        base = self.config.base_url.rstrip("/")
-        resp = self.get(f"{base}/?s={quote_plus(name)}")
-        if resp is None:
-            return []
         tokens = [t for t in slugify(name).split("-") if t]
         if not tokens:
             return []
 
-        soup = BeautifulSoup(resp.text, "html.parser")
-        base_host = self._host(urlparse(self.config.base_url).netloc)
-        by_slug: dict[str, tuple[str, str]] = {}
-        order: list[str] = []
-        seen: set[str] = set()
-        for a in soup.find_all("a", href=True):
-            href = urljoin(base, a["href"])
-            parsed = urlparse(href)
-            if parsed.netloc and self._host(parsed.netloc) != base_host:
-                continue
-            low = href.lower()
-            if "/category/" not in low and "/tag/" not in low:
-                continue
-            decoded = unquote(low)
-            normalised = href.rstrip("/") + "/"
-            if not (all(tok in decoded for tok in tokens)
-                    and normalised not in seen):
-                continue
-            seen.add(normalised)
-            slug = urlparse(normalised).path.strip("/").split("/", 1)[-1]
-            label = a.get_text(strip=True) or self._label_from_url(normalised)
-            is_category = "/category/" in normalised
-            existing = by_slug.get(slug)
-            if existing is None:
-                by_slug[slug] = (label, normalised)
-                order.append(slug)
-            elif is_category and "/category/" not in existing[1]:
-                by_slug[slug] = (label, normalised)  # upgrade tag -> category
+        directory = self._all_models_list()
+        found = self._filter_by_tokens(directory, tokens)
+        if found:
+            logger.info(
+                "model directory: %d matching model(s) for %r",
+                len(found), name,
+            )
+            return found
 
-        found = [by_slug[s] for s in order]
+        base = self.config.base_url.rstrip("/")
+        search_url = f"{base}/?s={quote_plus(name)}"
+        resp = self.get(search_url)
+        if resp is None:
+            return []
+        found = self._filter_by_tokens(
+            self._extract_model_links(resp.text, search_url), tokens)
         if found:
             logger.info(
                 "discovered %d matching category/tag page(s) for %r",
@@ -490,6 +474,97 @@ class Scraper:
     def _discover_taxonomy_urls(self, name: str) -> list[str]:
         """URLs only — see :meth:`_discover_taxonomy_candidates` for labels."""
         return [url for _label, url in self._discover_taxonomy_candidates(name)]
+
+    def _all_models_list(self) -> list[tuple[str, str]]:
+        """Every ``(label, url)`` on the site's own model directory page,
+        cached after the first call. Follows pagination the same way a
+        gallery archive is (reading the true last page from the widget on
+        page 1, per :meth:`_max_listing_page`) in case the directory spans
+        more than one page. Returns ``[]`` (cached) if the path is disabled
+        or the page can't be fetched, so callers just fall back to search.
+        """
+        if self._model_directory is not None:
+            return self._model_directory
+
+        path = self.config.model_directory_path
+        if not path:
+            self._model_directory = []
+            return self._model_directory
+
+        base = self.config.base_url.rstrip("/")
+        listing_url = f"{base}{path if path.startswith('/') else '/' + path}"
+        models: list[tuple[str, str]] = []
+        seen_slugs: set[str] = set()
+        max_page: int | None = None
+        for page_index, page_url in enumerate(self._paginate(listing_url)):
+            if max_page is not None and page_index >= max_page:
+                break
+            resp = self.get(page_url)
+            if resp is None:
+                break
+            page_models = self._extract_model_links(resp.text, page_url)
+            new_count = 0
+            for label, url in page_models:
+                slug = urlparse(url).path.strip("/").split("/", 1)[-1]
+                if slug not in seen_slugs:
+                    seen_slugs.add(slug)
+                    models.append((label, url))
+                    new_count += 1
+            if page_index == 0:
+                detected = self._max_listing_page(resp.text)
+                if detected:
+                    max_page = detected
+            if not page_models or new_count == 0:
+                break
+
+        logger.info("model directory: %d model(s) loaded from %s",
+                    len(models), listing_url)
+        self._model_directory = models
+        return models
+
+    def _extract_model_links(self, html: str, page_url: str) -> list[tuple[str, str]]:
+        """Every ``(label, url)`` category/tag link on a page, de-duplicated
+        by slug (the same person's ``/category/`` and ``/tag/`` page collapse
+        into one entry, preferring ``/category/``). Shared by the model
+        directory and the site search results.
+        """
+        soup = BeautifulSoup(html, "html.parser")
+        base_host = self._host(urlparse(self.config.base_url).netloc)
+        by_slug: dict[str, tuple[str, str]] = {}
+        order: list[str] = []
+        for a in soup.find_all("a", href=True):
+            href = urljoin(page_url, a["href"])
+            parsed = urlparse(href)
+            if parsed.netloc and self._host(parsed.netloc) != base_host:
+                continue
+            low = href.lower()
+            if "/category/" not in low and "/tag/" not in low:
+                continue
+            normalised = href.rstrip("/") + "/"
+            slug = urlparse(normalised).path.strip("/").split("/", 1)[-1]
+            label = a.get_text(strip=True) or self._label_from_url(normalised)
+            is_category = "/category/" in normalised
+            existing = by_slug.get(slug)
+            if existing is None:
+                by_slug[slug] = (label, normalised)
+                order.append(slug)
+            elif is_category and "/category/" not in existing[1]:
+                by_slug[slug] = (label, normalised)  # upgrade tag -> category
+        return [by_slug[s] for s in order]
+
+    @staticmethod
+    def _filter_by_tokens(pairs: list[tuple[str, str]],
+                          tokens: list[str]) -> list[tuple[str, str]]:
+        """Keep only the ``(label, url)`` pairs containing every token, matched
+        against the decoded URL and the display label (covers a directory
+        entry whose link text is kanji-only and a slug that's romaji-only, or
+        vice versa)."""
+        out = []
+        for label, url in pairs:
+            haystack = unquote(url.lower()) + " " + label.lower()
+            if all(tok in haystack for tok in tokens):
+                out.append((label, url))
+        return out
 
     @staticmethod
     def _label_from_url(url: str) -> str:

@@ -190,6 +190,112 @@ def test_discover_candidates_empty_for_url(monkeypatch):
 
 
 # --------------------------------------------------------------------------
+# model directory (/list-of-models-jp/) — preferred over the ?s= search
+# --------------------------------------------------------------------------
+
+DIRECTORY_HTML = """
+<html><body>
+  <a href="/category/miura-sakura-%e6%b0%b4%e5%8d%9c%e3%81%95%e3%81%8f%e3%82%89/">
+    Miura Sakura</a>
+  <a href="/category/other-person/">Someone else</a>
+</body></html>
+"""
+
+
+def test_model_directory_preferred_over_search(monkeypatch):
+    scraper = Scraper(Config())
+    calls = []
+
+    def fake_get(url):
+        calls.append(url)
+        if "list-of-models-jp" in url:
+            return FakeResponse(text=DIRECTORY_HTML)
+        raise AssertionError(
+            f"search should not run once the directory has a match: {url}")
+
+    monkeypatch.setattr(scraper, "get", fake_get)
+    found = scraper._discover_taxonomy_candidates("Miura Sakura")
+    assert found == [("Miura Sakura", MIURA_URL)]
+    assert any("list-of-models-jp" in u for u in calls)
+    assert not any("?s=" in u for u in calls)  # never fell back to search
+
+
+def test_model_directory_falls_back_to_search_when_no_match(monkeypatch):
+    scraper = Scraper(Config())
+
+    def fake_get(url):
+        if "list-of-models-jp" in url:
+            return FakeResponse(text=DIRECTORY_HTML)   # no "Shinozaki" here
+        if "?s=" in url:
+            return FakeResponse(text=SEARCH_HTML)       # has miura, not shino
+        return None
+
+    monkeypatch.setattr(scraper, "get", fake_get)
+    # Not in the directory fixture or the search fixture -> nothing found,
+    # but this must not raise and must have tried both sources.
+    assert scraper._discover_taxonomy_candidates("Nonexistent Person") == []
+
+
+def test_model_directory_disabled_skips_straight_to_search(monkeypatch):
+    scraper = Scraper(Config(model_directory_path=None))
+    calls = []
+
+    def fake_get(url):
+        calls.append(url)
+        return FakeResponse(text=SEARCH_HTML)
+
+    monkeypatch.setattr(scraper, "get", fake_get)
+    scraper._discover_taxonomy_candidates("Miura Sakura")
+    assert not any("list-of-models-jp" in u for u in calls)
+
+
+def test_model_directory_cached_across_calls(monkeypatch):
+    scraper = Scraper(Config())
+    calls = {"n": 0}
+
+    def fake_get(url):
+        calls["n"] += 1
+        return FakeResponse(text=DIRECTORY_HTML)
+
+    monkeypatch.setattr(scraper, "get", fake_get)
+    scraper._all_models_list()
+    first_fetch_calls = calls["n"]
+    assert first_fetch_calls > 0
+
+    # Further calls — direct or via discovery — must not re-fetch at all.
+    scraper._all_models_list()
+    scraper._discover_taxonomy_candidates("Miura Sakura")
+    assert calls["n"] == first_fetch_calls
+
+
+def test_model_directory_follows_its_own_pagination(monkeypatch):
+    scraper = Scraper(Config())
+    page1 = ('<div id="content"><a href="/category/miura-sakura-'
+            '%e6%b0%b4%e5%8d%9c%e3%81%95%e3%81%8f%e3%82%89/">Miura Sakura</a>'
+            '<nav><div><a class="page-numbers" href="/list-of-models-jp/page/2/">'
+            '2</a></div></nav></div>')
+    page2 = ('<div id="content"><a href="/category/other-person/">'
+            'Someone else</a></div>')
+    requested = []
+
+    def fake_get(url):
+        requested.append(url)
+        if "/page/2/" in url:
+            return FakeResponse(text=page2)
+        if "/page/" in url:
+            raise AssertionError(f"must not request past the known last "
+                                 f"page: {url}")
+        return FakeResponse(text=page1)
+
+    monkeypatch.setattr(scraper, "get", fake_get)
+    models = scraper._all_models_list()
+    assert ("Miura Sakura", MIURA_URL) in models
+    assert any("other-person" in u for _label, u in models)
+    assert len(models) == 2
+    assert not any("/page/3/" in u for u in requested)
+
+
+# --------------------------------------------------------------------------
 # sanitize_filename
 # --------------------------------------------------------------------------
 

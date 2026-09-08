@@ -20,10 +20,11 @@ interface** and a small **desktop GUI**.
   button to open the page in your browser). Also has Download-all, Stop,
   Open-folder, **Batch download** (multiple people in one run), Settings and
   log copy. Falls back to a Tkinter UI if PySide6 isn't installed.
-- **Smart discovery.** Finds the person's `category`/`tag` page automatically
-  (even romaji+Japanese slugs), or scrape a pasted URL directly. If a name
-  matches several different people (e.g. "Ogura"), you're asked which one
-  before anything downloads.
+- **Smart discovery.** Looks the name up in the site's own directory of every
+  model first (the most reliable source — real names and exact slugs, even
+  romaji+Japanese ones), falling back to its `?s=` search when someone isn't
+  listed there yet. Or scrape a pasted URL directly. If a name matches several
+  different people (e.g. "Ogura"), you're shown who before anything downloads.
 - **Full-resolution images.** Automatically upgrades WordPress' resized
   thumbnails (`photo-1024x768.jpg`, `photo-scaled.jpg`) to the original file.
 - **Polite by default.** Global request throttling, retries with exponential
@@ -256,12 +257,17 @@ worth trying plain HTTP first and only switching on when you hit a block.
 ## How it works
 
 1. **Discovery** (`scraper.py`): if you pass a URL it is scraped directly.
-   Otherwise the name is looked up — first by searching the site and picking
-   the `category`/`tag` page whose slug contains every part of the name (this
-   is how romaji+Japanese slugs are matched), then by guessing
-   `/category/<slug>/` and `/tag/<slug>/`, and finally the raw search results.
-   Listing pages are paginated (`/page/N/`) and each result's post link is
-   collected, filtering out taxonomy/feed/pagination links.
+   Otherwise the name is looked up against the site's own directory of every
+   model (`/list-of-models-jp/`, fetched once and cached — its own pagination
+   is followed the same way an archive's is) and matched against pages whose
+   URL or link text contains every part of the name, so romaji+Japanese slugs
+   still match correctly. If the directory has no hit, it falls back to
+   searching the site, then to guessing `/category/<slug>/` and
+   `/tag/<slug>/`. Multiple matches (a common name) are surfaced instead of
+   silently picking one. Listing pages are paginated (`/page/N/`), reading the
+   true last page straight from the archive's own pagination widget so it
+   never over- or under-shoots, and each result's post link is collected,
+   filtering out taxonomy/feed/pagination links.
 2. **Extraction**: each post's gallery items (`div.gallery-item img`, etc.) are
    read and the **largest `srcset` candidate** is taken for every image — the
    same approach as the reference implementation. If a page has no gallery

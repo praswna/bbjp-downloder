@@ -104,6 +104,12 @@ class Config:
     user_agent: str = DEFAULT_USER_AGENT
     output_dir: Path = Path("downloads")
 
+    # The site's own directory of every model — the most complete and
+    # authoritative source for name lookups, tried before the fuzzy ?s=
+    # search. Fetched once per Scraper and cached. Set to "" or None to
+    # disable it and go straight to search (e.g. if the site restructures).
+    model_directory_path: str | None = "/list-of-models-jp/"
+
     # Politeness / reliability
     request_delay: float = 1.0        # seconds to wait between HTTP requests
     timeout: float = 30.0             # per-request timeout in seconds
