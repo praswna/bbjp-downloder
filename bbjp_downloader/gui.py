@@ -36,18 +36,18 @@ except Exception:  # pragma: no cover
 
 
 # --- palette --------------------------------------------------------------
-BG = "#eef1f6"        # window background
+BG = "#f5f4ef"        # window background
 PANEL = "#ffffff"     # panels / cards
-BORDER = "#e2e6ee"    # hairline borders
-INK = "#0f172a"       # primary text
-MUTED = "#64748b"     # secondary text
-FAINT = "#94a3b8"     # tertiary text
-ACCENT = "#4f46e5"    # indigo
-ACCENT_DK = "#4338ca"
-GHOST = "#eef1f6"     # secondary button bg
-GHOST_DK = "#e2e6ee"
-DANGER = "#e11d48"
-THUMB = "#eef1f6"
+BORDER = "#dedfd6"    # hairline borders
+INK = "#203b36"       # primary text
+MUTED = "#5e7169"     # secondary text
+FAINT = "#73817a"     # tertiary text
+ACCENT = "#176b60"    # deep teal
+ACCENT_DK = "#105348"
+GHOST = "#f5f4ef"     # secondary button bg
+GHOST_DK = "#dedfd6"
+DANGER = "#ad4c45"
+THUMB = "#f5f4ef"
 THUMB_W, THUMB_H = 120, 150
 
 
@@ -102,7 +102,7 @@ class _App:
         root = tk.Tk()
         self.root = root
         root.title("BBJP Gallery Downloader")
-        root.geometry("820x680")
+        root.geometry("920x760")
         root.minsize(680, 560)
         root.configure(bg=BG)
         root.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -124,7 +124,7 @@ class _App:
         tk.Label(head, text="BBJP Gallery Downloader", bg=ACCENT, fg="white",
                  font=self.f_h1).pack(side="left", padx=20)
         tk.Label(head, text="personal use · be gentle on the site  ",
-                 bg=ACCENT, fg="#c7d2fe", font=self.f_small).pack(
+                 bg=ACCENT, fg="#d5e9e1", font=self.f_small).pack(
                      side="right", padx=8)
 
         # Search panel
@@ -158,9 +158,9 @@ class _App:
                                      style="Accent.TButton",
                                      command=self.download_all, state="disabled")
         self.dl_all_btn.pack(side="right")
-        ttk.Button(tb, text="⚙  Settings", style="Ghost.TButton",
+        ttk.Button(tb, text="Settings", style="Ghost.TButton",
                    command=self._open_settings).pack(side="right", padx=(0, 8))
-        ttk.Button(tb, text="📂  Open folder", style="Ghost.TButton",
+        ttk.Button(tb, text="Open folder", style="Ghost.TButton",
                    command=self._open_folder).pack(side="right", padx=(0, 8))
 
         # Results (scrollable)
@@ -197,8 +197,8 @@ class _App:
         if not _HAVE_PIL:
             tk.Label(lf, text="install Pillow for thumbnails", bg=BG, fg=FAINT,
                      font=self.f_small).pack(side="left", padx=(10, 0))
-        self.log = tk.Text(root, height=4, wrap="word", bg="#0f172a",
-                           fg="#cbd5e1", bd=0, font=self.f_mono, state="disabled",
+        self.log = tk.Text(root, height=4, wrap="word", bg="#203b36",
+                           fg="#d4e2da", bd=0, font=self.f_mono, state="disabled",
                            padx=10, pady=8)
         self.log.pack(fill="x", padx=20, pady=(0, 4))
 
@@ -230,11 +230,11 @@ class _App:
         st.configure("Accent.TButton", foreground="white", background=ACCENT,
                      padding=(16, 7), borderwidth=0)
         st.map("Accent.TButton",
-               background=[("active", ACCENT_DK), ("disabled", "#c3c6e8")])
+               background=[("active", ACCENT_DK), ("disabled", "#dce5df")])
         st.configure("Danger.TButton", foreground="white", background=DANGER,
                      padding=(16, 7), borderwidth=0)
         st.map("Danger.TButton",
-               background=[("active", "#be123c"), ("disabled", "#eeb8c4")])
+               background=[("active", "#903e38"), ("disabled", "#eaded9")])
         st.configure("Ghost.TButton", foreground=INK, background=GHOST,
                      padding=(10, 5), borderwidth=0)
         st.map("Ghost.TButton",
@@ -242,7 +242,7 @@ class _App:
         st.configure("Card.TButton", foreground="white", background=ACCENT,
                      padding=(12, 5), borderwidth=0)
         st.map("Card.TButton",
-               background=[("active", ACCENT_DK), ("disabled", "#c3c6e8")])
+               background=[("active", ACCENT_DK), ("disabled", "#dce5df")])
 
     # ---- small helpers ----------------------------------------------------
 
