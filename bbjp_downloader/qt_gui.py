@@ -111,6 +111,7 @@ class _Signals(QtCore.QObject):
     log = QtCore.Signal(str)
     status = QtCore.Signal(str)
     stubs_ready = QtCore.Signal(object)          # list[GalleryStub]
+    candidates_ready = QtCore.Signal(str, object)  # name, list[(label, url)]
     count_ready = QtCore.Signal(int, object)     # card index, Gallery|None
     thumb_ready = QtCore.Signal(int, bytes)      # card index, image bytes
     card_status = QtCore.Signal(int, str)        # card index, text
@@ -304,6 +305,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.sig.log.connect(self._on_log)
         self.sig.status.connect(self.status.setText)
         self.sig.stubs_ready.connect(self._on_stubs)
+        self.sig.candidates_ready.connect(self._on_candidates)
         self.sig.count_ready.connect(self._on_count)
         self.sig.thumb_ready.connect(self._on_thumb)
         self.sig.card_status.connect(self._on_card_status)
@@ -496,6 +498,10 @@ class MainWindow(QtWidgets.QMainWindow):
         if not name:
             self.status.setText("Please enter a name or URL.")
             return
+        self._search(name)
+
+    def _search(self, name: str) -> None:
+        """Run a search for ``name`` (a typed name or a gallery URL)."""
         self.person = name
         self.clear_log()
         self.enrich_cancel.set()
@@ -510,9 +516,62 @@ class MainWindow(QtWidgets.QMainWindow):
                               "For browser mode: pip install selenium")
         elif self._use_browser:
             self.sig.log.emit("Browser mode: launching Chrome to read pages…")
+        scraper = self._scraper(cfg, cancel)
+
+        candidates = scraper.discover_candidates(name)
+        if candidates:
+            self.sig.log.emit(
+                f"“{name}” matches {len(candidates)} different people — "
+                f"pick one below.")
+            self.sig.candidates_ready.emit(name, candidates)
+            return
+
         self.sig.log.emit(f"Searching galleries for “{name}” …")
-        stubs = self._scraper(cfg, cancel).find_gallery_stubs(name)
+        stubs = scraper.find_gallery_stubs(name)
         self.sig.stubs_ready.emit(stubs)
+
+    @QtCore.Slot(str, object)
+    def _on_candidates(self, name, candidates) -> None:
+        self.status.setText(
+            f"“{name}” matches {len(candidates)} people — pick one.")
+        dlg = QtWidgets.QDialog(self)
+        dlg.setWindowTitle("Which one did you mean?")
+        dlg.setStyleSheet(_QSS)
+        dlg.resize(460, 420)
+        v = QtWidgets.QVBoxLayout(dlg)
+        v.setContentsMargins(20, 18, 20, 18)
+        v.setSpacing(10)
+        v.addWidget(QtWidgets.QLabel(
+            f"“{name}” matches {len(candidates)} different people:",
+            objectName="toolCount"))
+
+        listw = QtWidgets.QListWidget()
+        listw.setAlternatingRowColors(False)
+        for label, url in candidates:
+            item = QtWidgets.QListWidgetItem(label or url)
+            item.setToolTip(url)
+            item.setData(QtCore.Qt.UserRole, url)
+            listw.addItem(item)
+        listw.setCurrentRow(0)
+        listw.itemDoubleClicked.connect(lambda _item: dlg.accept())
+        v.addWidget(listw, 1)
+
+        buttons = QtWidgets.QDialogButtonBox(
+            QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel)
+        ok_btn = buttons.button(QtWidgets.QDialogButtonBox.Ok)
+        ok_btn.setText("Search this one")
+        ok_btn.setObjectName("accent")
+        buttons.button(QtWidgets.QDialogButtonBox.Cancel).setObjectName("ghost")
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        v.addWidget(buttons)
+
+        if dlg.exec() != QtWidgets.QDialog.Accepted or listw.currentItem() is None:
+            self.status.setText("Selection cancelled.")
+            return
+        chosen_url = listw.currentItem().data(QtCore.Qt.UserRole)
+        self.name_edit.setText(chosen_url)
+        self._search(chosen_url)
 
     @QtCore.Slot(object)
     def _on_stubs(self, stubs) -> None:

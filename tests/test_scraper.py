@@ -133,6 +133,63 @@ def test_discover_taxonomy_urls_matches_all_tokens(monkeypatch):
 
 
 # --------------------------------------------------------------------------
+# discover_candidates — surfacing an ambiguous name for the UI to disambiguate
+# --------------------------------------------------------------------------
+
+AMBIGUOUS_HTML = """
+<html><body>
+  <a href="/category/ogura-yuna-%e5%b0%8f%e5%80%89%e7%94%b1%e5%a5%88/">小倉由奈</a>
+  <a href="/tag/ogura-yuna-%e5%b0%8f%e5%80%89%e7%94%b1%e5%a5%88/">Ogura Yuna (tag)</a>
+  <a href="/category/ogura-yui-%e5%b0%8f%e5%80%89%e6%9c%89%e7%b4%80/">小倉有紀</a>
+  <a href="/category/yamada-something/">unrelated</a>
+</body></html>
+"""
+
+SINGLE_MATCH_HTML = """
+<html><body>
+  <a href="/category/miura-sakura-%e6%b0%b4%e5%8d%9c%e3%81%95%e3%81%8f%e3%82%89/">
+    Miura Sakura</a>
+  <a href="/category/other-person/">Someone else</a>
+</body></html>
+"""
+
+
+def test_discover_candidates_dedupes_same_person_category_and_tag(monkeypatch):
+    scraper = Scraper(Config())
+    monkeypatch.setattr(
+        scraper, "get", lambda url: FakeResponse(text=AMBIGUOUS_HTML))
+    candidates = scraper.discover_candidates("Ogura")
+    # Two distinct people ("ogura-yuna", "ogura-yui"); the category+tag pair
+    # for the same person collapses into one entry, preferring /category/.
+    assert len(candidates) == 2
+    urls = [u for _label, u in candidates]
+    assert any("/category/ogura-yuna" in u for u in urls)
+    assert not any("/tag/ogura-yuna" in u for u in urls)
+    assert any("/category/ogura-yui" in u for u in urls)
+    labels = [label for label, _u in candidates]
+    assert "小倉由奈" in labels and "小倉有紀" in labels
+
+
+def test_discover_candidates_empty_when_unambiguous(monkeypatch):
+    scraper = Scraper(Config())
+    # Only one match -> nothing to disambiguate, caller proceeds normally.
+    monkeypatch.setattr(
+        scraper, "get", lambda url: FakeResponse(text=SINGLE_MATCH_HTML))
+    assert scraper.discover_candidates("Miura Sakura") == []
+
+
+def test_discover_candidates_empty_for_url(monkeypatch):
+    scraper = Scraper(Config())
+    called = {"n": 0}
+    monkeypatch.setattr(
+        scraper, "get",
+        lambda url: (called.__setitem__("n", called["n"] + 1)
+                    or FakeResponse(text=AMBIGUOUS_HTML)))
+    assert scraper.discover_candidates(MIURA_URL) == []
+    assert called["n"] == 0  # a pasted URL never triggers a search request
+
+
+# --------------------------------------------------------------------------
 # sanitize_filename
 # --------------------------------------------------------------------------
 

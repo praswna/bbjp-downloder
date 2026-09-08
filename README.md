@@ -21,7 +21,9 @@ interface** and a small **desktop GUI**.
   Open-folder, **Batch download** (multiple people in one run), Settings and
   log copy. Falls back to a Tkinter UI if PySide6 isn't installed.
 - **Smart discovery.** Finds the person's `category`/`tag` page automatically
-  (even romaji+Japanese slugs), or scrape a pasted URL directly.
+  (even romaji+Japanese slugs), or scrape a pasted URL directly. If a name
+  matches several different people (e.g. "Ogura"), you're asked which one
+  before anything downloads.
 - **Full-resolution images.** Automatically upgrades WordPress' resized
   thumbnails (`photo-1024x768.jpg`, `photo-scaled.jpg`) to the original file.
 - **Polite by default.** Global request throttling, retries with exponential
@@ -142,10 +144,13 @@ Common options:
 python -m bbjp_downloader --gui
 ```
 
-Enter a name (or paste a URL) and press **Search**. Each matching gallery
-appears **immediately** as a tile in a **responsive grid** (it reflows the
-column count as you resize the window) with its **thumbnail** and title; the
-image count fills in afterwards on a background thread. Every tile has its own
+Enter a name (or paste a URL) and press **Search**. If the name matches more
+than one person (common surnames like "Ogura" can match several different
+models), a **"Which one did you mean?"** dialog lists everyone found — pick
+the right one and it re-searches just them. Each matching gallery then appears
+**immediately** as a tile in a **responsive grid** (it reflows the column
+count as you resize the window) with its **thumbnail** and title; the image
+count fills in afterwards on a background thread. Every tile has its own
 **Download** button and a **Link ↗** button that opens the gallery page in your
 default web browser — grab just the sets you want, or press **Download all**.
 

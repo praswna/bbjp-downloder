@@ -418,11 +418,29 @@ class Scraper:
                 return max(numbers)
         return None
 
-    def _discover_taxonomy_urls(self, name: str) -> list[str]:
-        """Find category/tag pages for ``name`` from the site's search results.
+    def discover_candidates(self, name: str) -> list[tuple[str, str]]:
+        """``(label, url)`` pairs when ``name`` matches more than one distinct
+        person's category/tag page — i.e. the search is genuinely ambiguous
+        (e.g. "Ogura" matching several different models) and worth showing to
+        the user for disambiguation rather than silently picking one. Empty
+        for a pasted URL, no matches, or a single unambiguous match — those
+        cases proceed straight to the normal search.
+        """
+        if is_url(name):
+            return []
+        candidates = self._discover_taxonomy_candidates(name)
+        return candidates if len(candidates) > 1 else []
 
-        Returns listing URLs whose decoded slug contains *every* token of the
-        name, so "miura sakura" resolves to "/category/miura-sakura-水卜さくら/".
+    def _discover_taxonomy_candidates(self, name: str) -> list[tuple[str, str]]:
+        """Find category/tag pages for ``name`` from the site's search
+        results, paired with a human-readable label (the link's own text,
+        falling back to a cleaned-up slug).
+
+        Returns ``(label, url)`` pairs whose decoded slug contains *every*
+        token of the name, so "miura sakura" resolves to a page like
+        "/category/miura-sakura-水卜さくら/". The same person's ``/category/``
+        and ``/tag/`` page (identical slug, different taxonomy) collapse into
+        one entry, preferring ``/category/`` as the canonical route.
         """
         base = self.config.base_url.rstrip("/")
         resp = self.get(f"{base}/?s={quote_plus(name)}")
@@ -434,7 +452,8 @@ class Scraper:
 
         soup = BeautifulSoup(resp.text, "html.parser")
         base_host = self._host(urlparse(self.config.base_url).netloc)
-        found: list[str] = []
+        by_slug: dict[str, tuple[str, str]] = {}
+        order: list[str] = []
         seen: set[str] = set()
         for a in soup.find_all("a", href=True):
             href = urljoin(base, a["href"])
@@ -446,15 +465,37 @@ class Scraper:
                 continue
             decoded = unquote(low)
             normalised = href.rstrip("/") + "/"
-            if all(tok in decoded for tok in tokens) and normalised not in seen:
-                seen.add(normalised)
-                found.append(normalised)
+            if not (all(tok in decoded for tok in tokens)
+                    and normalised not in seen):
+                continue
+            seen.add(normalised)
+            slug = urlparse(normalised).path.strip("/").split("/", 1)[-1]
+            label = a.get_text(strip=True) or self._label_from_url(normalised)
+            is_category = "/category/" in normalised
+            existing = by_slug.get(slug)
+            if existing is None:
+                by_slug[slug] = (label, normalised)
+                order.append(slug)
+            elif is_category and "/category/" not in existing[1]:
+                by_slug[slug] = (label, normalised)  # upgrade tag -> category
+
+        found = [by_slug[s] for s in order]
         if found:
             logger.info(
                 "discovered %d matching category/tag page(s) for %r",
                 len(found), name,
             )
         return found
+
+    def _discover_taxonomy_urls(self, name: str) -> list[str]:
+        """URLs only — see :meth:`_discover_taxonomy_candidates` for labels."""
+        return [url for _label, url in self._discover_taxonomy_candidates(name)]
+
+    @staticmethod
+    def _label_from_url(url: str) -> str:
+        path = urlparse(url).path.strip("/")
+        slug = unquote(path.rsplit("/", 1)[-1]) if path else url
+        return slug.replace("-", " ").strip() or url
 
     def _paginate(self, listing_url: str) -> Iterator[str]:
         """Yield successive pages of a listing URL (WordPress /page/N/ style)."""
