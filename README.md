@@ -24,7 +24,8 @@ interface** and a small **desktop GUI**.
   model first (the most reliable source — real names and exact slugs, even
   romaji+Japanese ones), falling back to its `?s=` search when someone isn't
   listed there yet. Or scrape a pasted URL directly. If a name matches several
-  different people (e.g. "Ogura"), you're shown who before anything downloads.
+  different people (e.g. "Ogura"), you're shown who — each with a preview
+  photo from their most recent gallery — before anything downloads.
 - **Full-resolution images.** Automatically upgrades WordPress' resized
   thumbnails (`photo-1024x768.jpg`, `photo-scaled.jpg`) to the original file.
 - **Polite by default.** Global request throttling, retries with exponential
@@ -147,11 +148,13 @@ python -m bbjp_downloader --gui
 
 Enter a name (or paste a URL) and press **Search**. If the name matches more
 than one person (common surnames like "Ogura" can match several different
-models), the grid shows a tile for **each person** instead — click **View
-galleries →** on the right one and it re-searches just them. Once a specific
-person is found, each of their galleries appears **immediately** as a tile in
-a **responsive grid** (it reflows the column count as you resize the window)
-with its **thumbnail** and title; the image
+models), the grid shows a tile for **each person** instead — a preview photo
+from their most recent gallery fills in shortly after, so you can tell them
+apart at a glance — click **View galleries →** on the right one and it
+re-searches just them. Once a specific person is found, each of their
+galleries appears **immediately** as a tile in a **responsive grid** (it
+reflows the column count as you resize the window) with its **thumbnail** and
+title; the image
 count fills in afterwards on a background thread. Every tile has its own
 **Download** button and a **Link ↗** button that opens the gallery page in your
 default web browser — grab just the sets you want, or press **Download all**.

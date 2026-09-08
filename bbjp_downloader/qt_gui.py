@@ -114,6 +114,7 @@ class _Signals(QtCore.QObject):
     candidates_ready = QtCore.Signal(str, object)  # name, list[(label, url)]
     count_ready = QtCore.Signal(int, object)     # card index, Gallery|None
     thumb_ready = QtCore.Signal(int, bytes)      # card index, image bytes
+    person_thumb_ready = QtCore.Signal(int, bytes)  # person-tile index, image bytes
     card_status = QtCore.Signal(int, str)        # card index, text
     finished = QtCore.Signal()
 
@@ -149,6 +150,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.worker: threading.Thread | None = None
         self.enrich_thread: threading.Thread | None = None
         self.cards: list[dict] = []       # gallery tiles (empty in person-pick mode)
+        self._person_cards: list[dict] = []  # person tiles (empty in gallery mode)
         self._tiles: list = []            # every frame currently in the grid,
                                           # gallery or person — drives layout
         self._last_cols = 0
@@ -310,6 +312,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.sig.candidates_ready.connect(self._on_candidates)
         self.sig.count_ready.connect(self._on_count)
         self.sig.thumb_ready.connect(self._on_thumb)
+        self.sig.person_thumb_ready.connect(self._on_person_thumb)
         self.sig.card_status.connect(self._on_card_status)
         self.sig.finished.connect(lambda: self._set_running(False))
 
@@ -545,10 +548,65 @@ class MainWindow(QtWidgets.QMainWindow):
         for label, url in candidates:
             self._add_person_tile(label, url)
         self._relayout_grid(force=True)
+        self._start_person_enrichment()
 
     def _pick_person(self, url: str) -> None:
         self.name_edit.setText(url)
         self._search(url)
+
+    def _start_person_enrichment(self) -> None:
+        """Fetch one gallery per candidate (their most recent) in the
+        background, purely to grab a representative thumbnail — makes the
+        picker much easier to read at a glance, especially for kanji-only
+        names, without waiting on it before the tiles themselves appear."""
+        if self.enrich_thread is not None and self.enrich_thread.is_alive():
+            return
+        cfg = self._build_config()
+        cancel = self.enrich_cancel
+        persons = list(self._person_cards)
+
+        def work() -> None:
+            scraper = self._scraper(cfg, cancel)
+            for idx, person in enumerate(persons):
+                if cancel.is_set():
+                    return
+                try:
+                    stub = scraper.latest_gallery_stub(person["url"])
+                except Exception:
+                    stub = None
+                if stub and stub.thumb:
+                    self._load_person_thumb(idx, stub.thumb)
+        self.enrich_thread = threading.Thread(target=work, daemon=True)
+        self.enrich_thread.start()
+
+    def _load_person_thumb(self, idx, url) -> None:
+        threading.Thread(target=self._person_thumb_worker, args=(idx, url),
+                         daemon=True).start()
+
+    def _person_thumb_worker(self, idx, url) -> None:
+        with self._thumb_sema:
+            if self.enrich_cancel.is_set():
+                return
+            try:
+                resp = self.thumb_session.get(url, timeout=self.config.timeout,
+                                              stream=True)
+                resp.raise_for_status()
+                data = resp.content
+                resp.close()
+            except Exception:
+                return
+        self.sig.person_thumb_ready.emit(idx, data)
+
+    @QtCore.Slot(int, bytes)
+    def _on_person_thumb(self, idx, data) -> None:
+        if idx >= len(self._person_cards):
+            return
+        pix = QtGui.QPixmap()
+        if not pix.loadFromData(data):
+            return
+        pix = pix.scaled(THUMB_W, THUMB_H, QtCore.Qt.KeepAspectRatioByExpanding,
+                         QtCore.Qt.SmoothTransformation)
+        self._person_cards[idx]["icon"].setPixmap(pix)
 
     def _add_person_tile(self, label: str, url: str) -> None:
         frame = QtWidgets.QFrame(objectName="card")
@@ -580,6 +638,7 @@ class MainWindow(QtWidgets.QMainWindow):
         v.addWidget(btn)
 
         self._tiles.append(frame)
+        self._person_cards.append({"label": label, "url": url, "icon": icon})
 
     @QtCore.Slot(object)
     def _on_stubs(self, stubs) -> None:
@@ -611,6 +670,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 w.setParent(None)
                 w.deleteLater()
         self.cards = []
+        self._person_cards = []
         self._tiles = []
         self._last_cols = 0
 

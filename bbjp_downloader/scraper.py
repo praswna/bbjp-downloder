@@ -251,6 +251,18 @@ class Scraper:
         each post — fast enough to render a UI immediately."""
         return self._collect_listing_items(name)
 
+    def latest_gallery_stub(self, listing_url: str) -> GalleryStub | None:
+        """The single most recent gallery on a person's category/tag page —
+        one cheap request, no pagination, no per-post fetch. Meant for a
+        representative preview (e.g. a disambiguation picker's thumbnail),
+        not for enumerating someone's full archive.
+        """
+        resp = self.get(listing_url)
+        if resp is None:
+            return None
+        items = self._extract_listing_items(resp.text, listing_url)
+        return items[0] if items else None
+
     def find_gallery_urls(self, name: str) -> list[str]:
         """Collect gallery/post URLs for a name — or a pasted listing URL."""
         return [stub.url for stub in self._collect_listing_items(name)]

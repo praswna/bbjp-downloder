@@ -554,6 +554,47 @@ def test_listing_uses_featured_img_link():
     ]
 
 
+def test_latest_gallery_stub_returns_first_listing_item(monkeypatch):
+    scraper = Scraper(Config())
+    html = """
+    <html><body><div id="content">
+      <article><div class="entry-featured-img-wrap">
+        <a class="entry-featured-img-link"
+           href="https://www.bigboobsjapan.com/2024/08/01/newest/">
+          <img src="/wp-content/uploads/newest-150.jpg"
+               srcset="/wp-content/uploads/newest-150.jpg 150w,
+                       /wp-content/uploads/newest-600.jpg 600w"></a>
+      </div></article>
+      <article><div class="entry-featured-img-wrap">
+        <a class="entry-featured-img-link"
+           href="https://www.bigboobsjapan.com/2020/01/01/older/"></a>
+      </div></article>
+    </div></body></html>
+    """
+    monkeypatch.setattr(scraper, "get", lambda url: FakeResponse(text=html))
+    stub = scraper.latest_gallery_stub(
+        "https://www.bigboobsjapan.com/category/whoever/")
+    assert stub is not None
+    assert stub.url == "https://www.bigboobsjapan.com/2024/08/01/newest/"
+    assert stub.thumb == "https://www.bigboobsjapan.com/wp-content/uploads/newest-600.jpg"
+
+
+def test_latest_gallery_stub_none_when_empty(monkeypatch):
+    scraper = Scraper(Config())
+    monkeypatch.setattr(
+        scraper, "get",
+        lambda url: FakeResponse(text="<div id='content'></div>"))
+    assert scraper.latest_gallery_stub(
+        "https://www.bigboobsjapan.com/category/whoever/") is None
+
+
+def test_latest_gallery_stub_none_on_fetch_failure(monkeypatch):
+    scraper = Scraper(Config())
+    monkeypatch.setattr(scraper, "get", lambda url: None)
+    assert scraper.latest_gallery_stub(
+        "https://www.bigboobsjapan.com/category/whoever/") is None
+
+
 def test_listing_urls_include_uppercase_tag(monkeypatch):
     scraper = Scraper(Config())
     monkeypatch.setattr(scraper, "_discover_taxonomy_urls", lambda name: [])
