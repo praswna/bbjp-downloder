@@ -1,10 +1,13 @@
 """A modern PySide6/Qt GUI.
 
 Search shows a card per gallery immediately (title + featured thumbnail from
-the listing page); each gallery's image count fills in afterwards on a
-background thread. Every card has its own Download button; the toolbar has
-Download-all, Open-folder, a Settings dialog (workers / delay / full-size /
-save location) and Copy/Clear log.
+the listing page) laid out in a responsive grid that reflows on resize; each
+gallery's image count fills in afterwards on a background thread. Every card
+has its own Download button plus a "Link ↗" button to open the gallery page in
+the system browser. The toolbar has Download-all, Open-folder, Batch download
+(search + download every gallery for a whole list of names, one after
+another), a Settings dialog (workers / delay / full-size / save location /
+browser mode) and Copy/Clear log.
 
 Importing this module requires PySide6; the caller (cli) falls back to the
 Tkinter GUI if that import fails. Thumbnails also use Pillow when available,
@@ -28,7 +31,10 @@ from .config import Config
 from .downloader import Downloader, DownloadStats, sanitize_filename
 from .scraper import Scraper, person_label
 
-THUMB_W, THUMB_H = 122, 152
+THUMB_W, THUMB_H = 200, 248
+CARD_W = 236              # fixed tile width in the results grid
+GRID_SPACING = 14
+GRID_MAX_COLS = 6
 
 _QSS = """
 QWidget { font-family: "Segoe UI"; font-size: 13px; color: #203b36; }
@@ -64,6 +70,11 @@ QPushButton#card {
 }
 QPushButton#card:hover { background: #105348; }
 QPushButton#card:disabled { background: #dce5df; color: #65766d; }
+QPushButton#cardGhost {
+    background: transparent; color: #176b60; border: 1px solid #dedfd6;
+    border-radius: 8px; padding: 7px 10px; font-size: 12px; font-weight: 600;
+}
+QPushButton#cardGhost:hover { background: #eeeee7; }
 QFrame#card { background: white; border: 1px solid #dedfd6; border-radius: 13px; }
 QLabel#title { color: #203b36; font-size: 15px; font-weight: 600; }
 QLabel#count { color: #176b60; font-size: 11px; }
@@ -137,6 +148,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.worker: threading.Thread | None = None
         self.enrich_thread: threading.Thread | None = None
         self.cards: list[dict] = []
+        self._last_cols = 0
         self.person = ""
         self._thumb_sema = threading.BoundedSemaphore(4)
 
@@ -225,6 +237,7 @@ class MainWindow(QtWidgets.QMainWindow):
         trow.addStretch(1)
         for text, obj, slot in (
             ("Open folder", "ghost", self.open_folder),
+            ("Batch download", "ghost", self.open_batch_dialog),
             ("Settings", "ghost", self.open_settings),
         ):
             b = QtWidgets.QPushButton(text, objectName=obj)
@@ -237,22 +250,31 @@ class MainWindow(QtWidgets.QMainWindow):
         trow.addWidget(self.dl_all_btn)
         body.addLayout(trow)
 
-        # Results scroll area
+        # Results scroll area — a responsive grid of gallery tiles.
         self.scroll = QtWidgets.QScrollArea()
         self.scroll.setWidgetResizable(True)
         self.list_host = QtWidgets.QWidget(objectName="root")
-        self.list_layout = QtWidgets.QVBoxLayout(self.list_host)
-        self.list_layout.setSizeConstraint(QtWidgets.QLayout.SetMinimumSize)
-        self.list_layout.setContentsMargins(0, 0, 6, 0)
-        self.list_layout.setSpacing(12)
+        host_layout = QtWidgets.QVBoxLayout(self.list_host)
+        host_layout.setSizeConstraint(QtWidgets.QLayout.SetMinimumSize)
+        host_layout.setContentsMargins(0, 0, 6, 0)
+        host_layout.setSpacing(12)
+
         self.empty = QtWidgets.QLabel(
             "Your collection starts here\n\nSearch above to discover galleries.\nThumbnails and image counts will appear here.")
         self.empty.setAlignment(QtCore.Qt.AlignCenter)
         self.empty.setObjectName("empty")
         self.empty.setMinimumHeight(180)
-        self.list_layout.addWidget(self.empty)
-        self.list_layout.addStretch(1)
+        host_layout.addWidget(self.empty)
+
+        self.grid_widget = QtWidgets.QWidget(objectName="root")
+        self.grid_layout = QtWidgets.QGridLayout(self.grid_widget)
+        self.grid_layout.setSpacing(GRID_SPACING)
+        self.grid_layout.setAlignment(QtCore.Qt.AlignTop | QtCore.Qt.AlignLeft)
+        host_layout.addWidget(self.grid_widget)
+        host_layout.addStretch(1)
+
         self.scroll.setWidget(self.list_host)
+        self.scroll.viewport().installEventFilter(self)
         body.addWidget(self.scroll, 1)
 
         # Log
@@ -286,6 +308,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.sig.thumb_ready.connect(self._on_thumb)
         self.sig.card_status.connect(self._on_card_status)
         self.sig.finished.connect(lambda: self._set_running(False))
+
+    def eventFilter(self, obj, event) -> bool:
+        if obj is self.scroll.viewport() and event.type() == QtCore.QEvent.Resize:
+            self._relayout_grid()
+        return super().eventFilter(obj, event)
 
     # ---- log --------------------------------------------------------------
 
@@ -505,50 +532,95 @@ class MainWindow(QtWidgets.QMainWindow):
             self._add_card(stub)
             if stub.thumb:
                 self._load_thumb(len(self.cards) - 1, stub.thumb)
+        self._relayout_grid(force=True)
         self._start_enrichment()
 
     def _clear_cards(self) -> None:
         for card in self.cards:
+            self.grid_layout.removeWidget(card["frame"])
             card["frame"].setParent(None)
             card["frame"].deleteLater()
         self.cards = []
+        self._last_cols = 0
+
+    def _relayout_grid(self, force: bool = False) -> None:
+        """Re-flow the gallery tiles into a grid whose column count fits the
+        current viewport width — called on add and on window resize."""
+        if not self.cards:
+            return
+        viewport_w = self.scroll.viewport().width()
+        cols = max(1, (viewport_w + GRID_SPACING) // (CARD_W + GRID_SPACING))
+        cols = min(int(cols), GRID_MAX_COLS)
+        if not force and cols == self._last_cols:
+            return
+        self._last_cols = cols
+        for card in self.cards:
+            self.grid_layout.removeWidget(card["frame"])
+        for i, card in enumerate(self.cards):
+            row, col = divmod(i, cols)
+            self.grid_layout.addWidget(card["frame"], row, col)
+
+    @staticmethod
+    def _short_url(url: str, maxlen: int = 34) -> str:
+        if len(url) <= maxlen:
+            return url
+        head = maxlen // 2 - 2
+        tail = maxlen - head - 3
+        return url[:head] + "..." + url[-tail:]
+
+    def _open_link(self, url: str) -> None:
+        QtGui.QDesktopServices.openUrl(QtCore.QUrl(url))
+        self.status.setText(f"Opened in your browser: {url}")
 
     def _add_card(self, stub) -> None:
+        # NOTE: the tile is only built here — its position in the results
+        # grid is assigned by _relayout_grid(), called after all cards for a
+        # search are added (and again on window resize).
         idx = len(self.cards)
         frame = QtWidgets.QFrame(objectName="card")
-        frame.setMinimumHeight(THUMB_H + 36)
-        h = QtWidgets.QHBoxLayout(frame)
-        h.setContentsMargins(18, 18, 18, 18)
-        h.setSpacing(18)
+        frame.setFixedWidth(CARD_W)
+        v = QtWidgets.QVBoxLayout(frame)
+        v.setContentsMargins(16, 16, 16, 16)
+        v.setSpacing(8)
 
         thumb = QtWidgets.QLabel("PREVIEW", objectName="thumb")
         thumb.setFixedSize(THUMB_W, THUMB_H)
         thumb.setAlignment(QtCore.Qt.AlignCenter)
-        h.addWidget(thumb)
+        thumb_row = QtWidgets.QHBoxLayout()
+        thumb_row.addStretch(1)
+        thumb_row.addWidget(thumb)
+        thumb_row.addStretch(1)
+        v.addLayout(thumb_row)
 
-        right = QtWidgets.QVBoxLayout()
-        right.setSpacing(8)
         title = QtWidgets.QLabel(stub.title, objectName="title")
         title.setWordWrap(True)
+        title.setMaximumHeight(56)
+        v.addWidget(title)
+
         count = QtWidgets.QLabel("counting…", objectName="count")
-        url = QtWidgets.QLabel(stub.url, objectName="url")
-        url.setWordWrap(True)
-        right.addWidget(title)
-        right.addWidget(count)
-        right.addWidget(url)
+        v.addWidget(count)
+
+        url = QtWidgets.QLabel(self._short_url(stub.url), objectName="url")
+        url.setToolTip(stub.url)
+        v.addWidget(url)
 
         ctl = QtWidgets.QHBoxLayout()
-        btn = QtWidgets.QPushButton("↓  Download", objectName="card")
+        ctl.setSpacing(8)
+        btn = QtWidgets.QPushButton("↓ Download", objectName="card")
+        btn.setSizePolicy(QtWidgets.QSizePolicy.Expanding,
+                          QtWidgets.QSizePolicy.Fixed)
         btn.clicked.connect(lambda _=False, i=idx: self.download_one(i))
-        cstatus = QtWidgets.QLabel("", objectName="cardStatus")
-        ctl.addWidget(btn)
-        ctl.addWidget(cstatus)
-        ctl.addStretch(1)
-        right.addLayout(ctl)
-        h.addLayout(right, 1)
+        link_btn = QtWidgets.QPushButton("Link ↗", objectName="cardGhost")
+        link_btn.setToolTip("Open this gallery page in your browser")
+        link_btn.clicked.connect(lambda _=False, u=stub.url: self._open_link(u))
+        ctl.addWidget(btn, 1)
+        ctl.addWidget(link_btn)
+        v.addLayout(ctl)
 
-        # insert before the trailing stretch
-        self.list_layout.insertWidget(self.list_layout.count() - 1, frame)
+        cstatus = QtWidgets.QLabel("", objectName="cardStatus")
+        cstatus.setWordWrap(True)
+        v.addWidget(cstatus)
+
         self.cards.append({"stub": stub, "gallery": None, "frame": frame,
                            "thumb": thumb, "count": count, "btn": btn,
                            "status": cstatus})
@@ -698,6 +770,105 @@ class MainWindow(QtWidgets.QMainWindow):
     def _on_card_status(self, idx, text) -> None:
         if idx < len(self.cards):
             self.cards[idx]["status"].setText(text)
+
+    # ---- batch download (multiple people in one run) ----------------------
+
+    def open_batch_dialog(self) -> None:
+        if self._busy():
+            self.status.setText("Please wait for the current operation to finish.")
+            return
+        dlg = QtWidgets.QDialog(self)
+        dlg.setWindowTitle("Batch download — multiple people")
+        dlg.setStyleSheet(_QSS)
+        dlg.resize(480, 440)
+        v = QtWidgets.QVBoxLayout(dlg)
+        v.setContentsMargins(20, 18, 20, 18)
+        v.setSpacing(10)
+        v.addWidget(QtWidgets.QLabel("One name or gallery URL per line",
+                                     objectName="toolCount"))
+        text = QtWidgets.QPlainTextEdit()
+        text.setPlaceholderText(
+            "Miura Sakura\nShinozaki Ai\n"
+            "https://www.bigboobsjapan.com/category/.../\n…")
+        text.setMinimumHeight(240)
+        v.addWidget(text, 1)
+        v.addWidget(QtWidgets.QLabel(
+            "Each entry is searched and every gallery found for it is "
+            "downloaded, one person after another, into its own folder. "
+            "This can take a while — Stop cancels at any point.",
+            objectName="hint"))
+        buttons = QtWidgets.QDialogButtonBox(
+            QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel)
+        ok_btn = buttons.button(QtWidgets.QDialogButtonBox.Ok)
+        ok_btn.setText("Start batch download")
+        ok_btn.setObjectName("accent")
+        buttons.button(QtWidgets.QDialogButtonBox.Cancel).setObjectName("ghost")
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        v.addWidget(buttons)
+
+        if dlg.exec() != QtWidgets.QDialog.Accepted:
+            return
+        names = [ln.strip() for ln in text.toPlainText().splitlines()
+                if ln.strip()]
+        if not names:
+            self.status.setText("No names entered.")
+            return
+        self.batch_download(names)
+
+    def batch_download(self, names: list[str]) -> None:
+        if not names:
+            return
+        self.enrich_cancel.set()
+        self._run_bg(lambda cfg, ev: self._do_batch(names, cfg, ev),
+                     f"Batch: starting {len(names)} name(s) …")
+
+    def _do_batch(self, names, cfg, cancel) -> None:
+        total_people = len(names)
+        grand = DownloadStats()
+        for i, name in enumerate(names, 1):
+            if cancel.is_set():
+                break
+            self.sig.log.emit(f"\n=== [{i}/{total_people}] {name} ===")
+            self.sig.status.emit(f"Batch {i}/{total_people}: searching “{name}” …")
+            scraper = self._scraper(cfg, cancel)
+            stubs = scraper.find_gallery_stubs(name)
+            self.sig.stubs_ready.emit(stubs)   # visual feedback only
+            if cancel.is_set():
+                break
+            if not stubs:
+                self.sig.log.emit(f"No galleries found for “{name}”.")
+                continue
+            root = cfg.output_dir / sanitize_filename(person_label(name),
+                                                      "model")
+            root.mkdir(parents=True, exist_ok=True)
+            downloader = Downloader(cfg, session=self._dl_session(cfg),
+                                    cancel_event=cancel)
+            for j, stub in enumerate(stubs):
+                if cancel.is_set():
+                    break
+                gallery = scraper.extract_images(stub.url)
+                self.sig.count_ready.emit(j, gallery)
+                if not gallery or not gallery.images:
+                    continue
+                self.sig.card_status.emit(j, "downloading…")
+                st = downloader.download_gallery(gallery, root)
+                grand.merge(st)
+                self.sig.card_status.emit(
+                    j, f"saved · {st.downloaded} new, {st.skipped} skipped")
+                self.sig.status.emit(
+                    f"Batch {i}/{total_people} “{name}”: "
+                    f"{j + 1}/{len(stubs)} galleries")
+            self.sig.log.emit(
+                f"“{name}” done — {grand.downloaded} downloaded so far "
+                f"(cumulative across this batch).")
+        verb = "Stopped" if cancel.is_set() else "Done"
+        self.sig.log.emit(
+            f"\nBatch {verb}: {grand.downloaded} downloaded, {grand.skipped} "
+            f"skipped, {grand.failed} failed "
+            f"({grand.bytes_written / 1_048_576:.1f} MB) across "
+            f"{total_people} name(s).")
+        self.sig.status.emit(f"Batch {verb.lower()}.")
 
     # ---- lifecycle --------------------------------------------------------
 

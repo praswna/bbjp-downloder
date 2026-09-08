@@ -15,10 +15,11 @@ interface** and a small **desktop GUI**.
 
 - **Name → galleries → images.** Give it a name; it finds every matching
   gallery and downloads all the images in each.
-- **Modern Qt GUI.** A PySide6/Qt window shows each gallery as a card with a
-  thumbnail, image count, and its own Download button (plus Download-all, Stop,
-  Open-folder, Settings and log copy). Falls back to a Tkinter UI if PySide6
-  isn't installed.
+- **Modern Qt GUI.** A PySide6/Qt window shows every gallery as a tile in a
+  responsive grid (thumbnail, image count, a Download button and a Link ↗
+  button to open the page in your browser). Also has Download-all, Stop,
+  Open-folder, **Batch download** (multiple people in one run), Settings and
+  log copy. Falls back to a Tkinter UI if PySide6 isn't installed.
 - **Smart discovery.** Finds the person's `category`/`tag` page automatically
   (even romaji+Japanese slugs), or scrape a pasted URL directly.
 - **Full-resolution images.** Automatically upgrades WordPress' resized
@@ -142,18 +143,24 @@ python -m bbjp_downloader --gui
 ```
 
 Enter a name (or paste a URL) and press **Search**. Each matching gallery
-appears **immediately** as a card with its **thumbnail** and title; the image
-count fills in afterwards on a background thread. Every card has its own
-**Download** button — grab just the sets you want, or press **Download all**.
+appears **immediately** as a tile in a **responsive grid** (it reflows the
+column count as you resize the window) with its **thumbnail** and title; the
+image count fills in afterwards on a background thread. Every tile has its own
+**Download** button and a **Link ↗** button that opens the gallery page in your
+default web browser — grab just the sets you want, or press **Download all**.
 
 Toolbar & niceties:
 
 - **Open folder** — reveal the save location in your file manager.
-- **Settings ⚙** — workers, request delay, full-size toggle and save location
-  live here (out of the main view).
+- **Batch download** — paste in a list of names/URLs (one per line) and the
+  app searches and downloads every gallery for each of them in turn, into its
+  own per-person folder. Useful for grabbing several people unattended.
+- **Settings ⚙** — workers, request delay, full-size toggle, save location and
+  browser mode live here (out of the main view).
 - **Copy** / **Clear** the log; the log also resets on each new search.
-- **Stop** cancels the current operation; files already downloaded are kept,
-  and running again resumes (existing files are skipped).
+- **Stop** cancels the current operation (including a batch run mid-way);
+  files already downloaded are kept, and running again resumes (existing files
+  are skipped).
 
 The GUI is built with **PySide6/Qt** for a modern look (rounded cards, hover
 states, a proper settings dialog). If PySide6 isn't installed it automatically
