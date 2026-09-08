@@ -120,7 +120,7 @@ class Config:
     # JS challenges that block plain HTTP requests are bypassed. Downloads then
     # reuse the browser's cookies. Off by default (needs Chrome + selenium).
     use_browser: bool = False
-    browser_headless: bool = False    # show the Chrome window (better bypass)
+    browser_headless: bool = True     # run Chrome without a visible window
     browser_settle: float = 1.5       # seconds to wait after each page load
     full_size: bool = True            # strip WordPress -WxH suffixes to fetch originals
     overwrite: bool = False           # re-download files that already exist

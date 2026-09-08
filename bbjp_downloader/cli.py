@@ -50,9 +50,10 @@ def build_parser() -> argparse.ArgumentParser:
                    help=("Read pages with a real Chrome browser (Selenium) to "
                          "bypass anti-bot blocks; downloads reuse its cookies. "
                          "Requires Chrome + selenium."))
-    p.add_argument("--headless", dest="browser_headless", action="store_true",
-                   default=None,
-                   help="Run the browser without a visible window (with --browser).")
+    p.add_argument("--show-browser", dest="browser_headless",
+                   action="store_false", default=None,
+                   help=("Show the Chrome window instead of running it hidden "
+                         "(headless is the default with --browser)."))
     p.add_argument("--list", action="store_true",
                    help="Only list matching galleries; do not download.")
     p.add_argument("--gui", action="store_true",

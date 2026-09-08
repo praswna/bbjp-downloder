@@ -129,7 +129,7 @@ Common options:
 | `--no-full-size` | Keep resized images, don't fetch originals | off |
 | `--obey-robots` | Honour `robots.txt` (off by default — see below) | off |
 | `--browser` | Read pages via a real Chrome (Selenium) — bypasses blocks | off |
-| `--headless` | Hide the Chrome window (with `--browser`) | off |
+| `--show-browser` | Show the Chrome window (with `--browser`; hidden by default) | off |
 | `--base-url URL` | Point at a different site | `bigboobsjapan.com` |
 | `--list` | List galleries only, don't download | — |
 | `--gui` | Launch the graphical interface | — |
@@ -216,10 +216,12 @@ to load every page, so it looks like an ordinary visitor instead of a script.
 Downloads then reuse that Chrome session's cookies, so hot-link / referer
 checks pass too.
 
-- **GUI**: it's on by default (⚙ **Settings** → *Browser mode*). Turn it off
-  there if you'd rather use plain HTTP, or enable *headless* to hide the
-  Chrome window once you've confirmed it works.
-- **CLI**: pass `--browser` (add `--headless` to hide the window):
+Chrome runs **hidden (headless)** by default — nothing pops up on screen.
+
+- **GUI**: browser mode is on by default (⚙ **Settings** → *Browser mode*).
+  Turn it off there if you'd rather use plain HTTP, or untick *headless* if
+  you want to actually watch the browser (useful for troubleshooting).
+- **CLI**: pass `--browser`; add `--show-browser` if you want to see the window:
 
   ```bash
   python -m bbjp_downloader "Some Name" --browser
