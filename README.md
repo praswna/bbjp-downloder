@@ -146,10 +146,11 @@ python -m bbjp_downloader --gui
 
 Enter a name (or paste a URL) and press **Search**. If the name matches more
 than one person (common surnames like "Ogura" can match several different
-models), a **"Which one did you mean?"** dialog lists everyone found — pick
-the right one and it re-searches just them. Each matching gallery then appears
-**immediately** as a tile in a **responsive grid** (it reflows the column
-count as you resize the window) with its **thumbnail** and title; the image
+models), the grid shows a tile for **each person** instead — click **View
+galleries →** on the right one and it re-searches just them. Once a specific
+person is found, each of their galleries appears **immediately** as a tile in
+a **responsive grid** (it reflows the column count as you resize the window)
+with its **thumbnail** and title; the image
 count fills in afterwards on a background thread. Every tile has its own
 **Download** button and a **Link ↗** button that opens the gallery page in your
 default web browser — grab just the sets you want, or press **Download all**.

@@ -148,7 +148,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.enrich_cancel = threading.Event()
         self.worker: threading.Thread | None = None
         self.enrich_thread: threading.Thread | None = None
-        self.cards: list[dict] = []
+        self.cards: list[dict] = []       # gallery tiles (empty in person-pick mode)
+        self._tiles: list = []            # every frame currently in the grid,
+                                          # gallery or person — drives layout
         self._last_cols = 0
         self.person = ""
         self._thumb_sema = threading.BoundedSemaphore(4)
@@ -532,50 +534,56 @@ class MainWindow(QtWidgets.QMainWindow):
 
     @QtCore.Slot(str, object)
     def _on_candidates(self, name, candidates) -> None:
+        # Show the matching people right in the results grid — click one to
+        # search just them — instead of interrupting with a separate dialog.
+        self._clear_grid()
+        self.empty.hide()
+        self.tool_count.setText(f"{len(candidates)} people match “{name}”")
         self.status.setText(
-            f"“{name}” matches {len(candidates)} people — pick one.")
-        dlg = QtWidgets.QDialog(self)
-        dlg.setWindowTitle("Which one did you mean?")
-        dlg.setStyleSheet(_QSS)
-        dlg.resize(460, 420)
-        v = QtWidgets.QVBoxLayout(dlg)
-        v.setContentsMargins(20, 18, 20, 18)
-        v.setSpacing(10)
-        v.addWidget(QtWidgets.QLabel(
-            f"“{name}” matches {len(candidates)} different people:",
-            objectName="toolCount"))
-
-        listw = QtWidgets.QListWidget()
-        listw.setAlternatingRowColors(False)
+            f"“{name}” matches {len(candidates)} people — pick one below.")
+        self.dl_all_btn.setEnabled(False)
         for label, url in candidates:
-            item = QtWidgets.QListWidgetItem(label or url)
-            item.setToolTip(url)
-            item.setData(QtCore.Qt.UserRole, url)
-            listw.addItem(item)
-        listw.setCurrentRow(0)
-        listw.itemDoubleClicked.connect(lambda _item: dlg.accept())
-        v.addWidget(listw, 1)
+            self._add_person_tile(label, url)
+        self._relayout_grid(force=True)
 
-        buttons = QtWidgets.QDialogButtonBox(
-            QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel)
-        ok_btn = buttons.button(QtWidgets.QDialogButtonBox.Ok)
-        ok_btn.setText("Search this one")
-        ok_btn.setObjectName("accent")
-        buttons.button(QtWidgets.QDialogButtonBox.Cancel).setObjectName("ghost")
-        buttons.accepted.connect(dlg.accept)
-        buttons.rejected.connect(dlg.reject)
-        v.addWidget(buttons)
+    def _pick_person(self, url: str) -> None:
+        self.name_edit.setText(url)
+        self._search(url)
 
-        if dlg.exec() != QtWidgets.QDialog.Accepted or listw.currentItem() is None:
-            self.status.setText("Selection cancelled.")
-            return
-        chosen_url = listw.currentItem().data(QtCore.Qt.UserRole)
-        self.name_edit.setText(chosen_url)
-        self._search(chosen_url)
+    def _add_person_tile(self, label: str, url: str) -> None:
+        frame = QtWidgets.QFrame(objectName="card")
+        frame.setFixedWidth(CARD_W)
+        v = QtWidgets.QVBoxLayout(frame)
+        v.setContentsMargins(16, 16, 16, 16)
+        v.setSpacing(10)
+
+        icon = QtWidgets.QLabel("👤", objectName="thumb")
+        icon.setFixedSize(THUMB_W, THUMB_H)
+        icon.setAlignment(QtCore.Qt.AlignCenter)
+        icon_font = icon.font()
+        icon_font.setPointSize(40)
+        icon.setFont(icon_font)
+        icon_row = QtWidgets.QHBoxLayout()
+        icon_row.addStretch(1)
+        icon_row.addWidget(icon)
+        icon_row.addStretch(1)
+        v.addLayout(icon_row)
+
+        title = QtWidgets.QLabel(label or url, objectName="title")
+        title.setWordWrap(True)
+        title.setAlignment(QtCore.Qt.AlignCenter)
+        v.addWidget(title)
+
+        btn = QtWidgets.QPushButton("View galleries →", objectName="card")
+        btn.setToolTip(url)
+        btn.clicked.connect(lambda _=False, u=url: self._pick_person(u))
+        v.addWidget(btn)
+
+        self._tiles.append(frame)
 
     @QtCore.Slot(object)
     def _on_stubs(self, stubs) -> None:
-        self._clear_cards()
+        self._clear_grid()
         if not stubs:
             self.empty.setText("No galleries found for that name.")
             self.empty.show()
@@ -594,18 +602,22 @@ class MainWindow(QtWidgets.QMainWindow):
         self._relayout_grid(force=True)
         self._start_enrichment()
 
-    def _clear_cards(self) -> None:
-        for card in self.cards:
-            self.grid_layout.removeWidget(card["frame"])
-            card["frame"].setParent(None)
-            card["frame"].deleteLater()
+    def _clear_grid(self) -> None:
+        """Remove every tile currently shown — gallery cards or person tiles."""
+        while self.grid_layout.count():
+            item = self.grid_layout.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.setParent(None)
+                w.deleteLater()
         self.cards = []
+        self._tiles = []
         self._last_cols = 0
 
     def _relayout_grid(self, force: bool = False) -> None:
-        """Re-flow the gallery tiles into a grid whose column count fits the
-        current viewport width — called on add and on window resize."""
-        if not self.cards:
+        """Re-flow the current tiles into a grid whose column count fits the
+        viewport width — called on add and on window resize."""
+        if not self._tiles:
             return
         viewport_w = self.scroll.viewport().width()
         cols = max(1, (viewport_w + GRID_SPACING) // (CARD_W + GRID_SPACING))
@@ -613,11 +625,11 @@ class MainWindow(QtWidgets.QMainWindow):
         if not force and cols == self._last_cols:
             return
         self._last_cols = cols
-        for card in self.cards:
-            self.grid_layout.removeWidget(card["frame"])
-        for i, card in enumerate(self.cards):
+        for frame in self._tiles:
+            self.grid_layout.removeWidget(frame)
+        for i, frame in enumerate(self._tiles):
             row, col = divmod(i, cols)
-            self.grid_layout.addWidget(card["frame"], row, col)
+            self.grid_layout.addWidget(frame, row, col)
 
     @staticmethod
     def _short_url(url: str, maxlen: int = 34) -> str:
@@ -683,6 +695,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.cards.append({"stub": stub, "gallery": None, "frame": frame,
                            "thumb": thumb, "count": count, "btn": btn,
                            "status": cstatus})
+        self._tiles.append(frame)
 
     # ---- enrichment -------------------------------------------------------
 
